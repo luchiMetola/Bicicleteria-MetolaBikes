@@ -1,0 +1,39 @@
+import { useState } from 'react';
+
+function Home() {
+  const [destacados] = useState([
+    { id: 1, nombre: 'Mountain Bike R29', descripcion: 'Bicicleta todo terreno con cuadro de aluminio y 21 velocidades Shimano.', precio: 450000.00, stock: 10, imagen: '固定', emoji: '🚵‍♂️' },
+    { id: 2, nombre: 'Bicicleta de Ruta Carbono', descripcion: 'Diseño aerodinámico ultra liviano para alta velocidad en asfalto.', precio: 680000.00, stock: 5, imagen: '固定', emoji: '🚴‍♀️' }
+  ]);
+
+  return (
+    <div className="min-h-screen bg-slate-50 font-sans p-8 pl-24 md:pl-18rem max-w-7xl mx-auto transition-all">
+      <header className="border-b border-slate-200 pb-5">
+        <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">🚲 Bienvenidos a Metola Bikes</h1>
+        <p className="text-slate-500 mt-1 text-sm">Descubrí las ofertas más destacadas de la semana.</p>
+      </header>
+
+      <main className="mt-10">
+        <h2 className="text-xl font-bold text-slate-700 mb-6">⭐ Productos Destacados</h2>
+        
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          {destacados.map((producto) => (
+            <div key={producto.id} className="bg-white border border-slate-200 rounded-2xl p-6 text-center shadow-xs hover:shadow-md transition-all flex flex-col justify-between">
+              <div>
+                <span className="text-6xl block my-2">{producto.emoji}</span>
+                <h3 className="text-xl font-bold text-slate-800 mt-3">{producto.nombre}</h3>
+                <p className="text-slate-500 text-sm mt-2 px-4">{producto.descripcion}</p>
+              </div>
+              <div className="mt-6">
+                <p className="text-emerald-600 font-black text-3xl">${Number(producto.precio).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</p>
+                <p className="text-slate-400 text-xs mt-1">¡Pocas unidades en stock!</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+export default Home;
