@@ -46,8 +46,11 @@ app.get('/productos', (req, res) => {
 
 // --- NUEVA RUTA: DÍA 3 - REGISTRO ---
 app.post('/api/auth/register', (req, res) => {
-    const { nombre, email, contrasena, rol } = req.body;
+    const { nombre, email, contrasena, telefono, direccion, rol } = req.body;
 
+    if (!nombre || !email || !contrasena || !telefono || !direccion) {
+        return res.status(400).json({ error: 'Todos los campos son obligatorios.' });
+    }
     // 1. Verificar si el email ya existe en la base de datos
     const consultarEmail = 'SELECT * FROM usuarios WHERE email = ?';
     
@@ -70,8 +73,8 @@ app.post('/api/auth/register', (req, res) => {
             }
 
             // 3. Insertar el nuevo usuario en la base de datos
-            const insertarQuery = 'INSERT INTO usuarios (nombre, email, contrasena, rol) VALUES (?, ?, ?, ?)';
-            const valores = [nombre, email, contrasenaEncriptada, rol || 'cliente'];
+            const insertarQuery = 'INSERT INTO usuarios (nombre, email, contrasena, telefono, direccion, rol) VALUES (?, ?, ?, ?, ?, ?)';
+            const valores = [nombre, email, contrasenaEncriptada, telefono, direccion, rol || 'cliente'];
 
             db.query(insertarQuery, valores, (errInsert, resultado) => {
                 if (errInsert) {
@@ -133,7 +136,83 @@ app.post('/api/auth/login', (req, res) => {
         });
     });
 });
+// Ruta para registrar un nuevo turno en la tabla equipo
+app.post('/api/equipo', (req, res) => {
+  // Ahora extraemos los nombres EXACTOS de tus columnas de phpMyAdmin
+  const { bici_modelo, equipo_dato, descripcion } = req.body;
 
+  if (!bici_modelo || !equipo_dato || !descripcion) {
+    return res.status(400).json({ error: 'Todos los campos son obligatorios.' });
+  }
+
+  const query = 'INSERT INTO equipo (bici_modelo, equipo_dato, descripcion) VALUES (?, ?, ?)';
+
+  db.query(query, [bici_modelo, equipo_dato, descripcion], (err, result) => {
+    if (err) {
+      console.error('Error al insertar en la tabla equipo:', err);
+      return res.status(500).json({ error: 'Error del servidor al guardar el turno.' });
+    }
+    
+    res.status(201).json({ 
+      message: '¡Turno solicitado con éxito!', 
+      id: result.insertId 
+    });
+  });
+});
+
+// Ruta para obtener todos los turnos de la tabla equipo
+app.get('/api/equipo', (req, res) => {
+  const query = 'SELECT * FROM equipo ORDER BY equipo_dato ASC';
+  
+  db.query(query, (err, results) => {
+    if (err) {
+      console.error('Error al consultar la tabla equipo:', err);
+      return res.status(500).json({ error: 'Error del servidor al consultar los turnos.' });
+    }
+    res.json(results); // Envía las filas con columnas en español directamente
+  });
+});
+
+
+// 1. MEDIADOR DE SEGURIDAD (Middleware) para verificar el Token JWT
+const verificarToken = (req, res, next) => {
+  const token = req.headers['authorization'];
+
+  if (!token) {
+    return res.status(403).json({ error: 'No se proporcionó un token de acceso.' });
+  }
+
+  // Quitamos la palabra "Bearer " si el frontend la envía
+  const tokenLimpio = token.startsWith('Bearer ') ? token.slice(7) : token;
+
+jwt.verify(tokenLimpio, JWT_SECRET, (err, decoded) => { 
+  if (err) {
+    return res.status(401).json({ error: 'Token inválido o expirado.' });
+  }
+  req.usuarioId = decoded.id; 
+  next();
+});
+};
+
+// 2. RUTA DEL PERFIL: Trae los datos reales del usuario logueado usando su ID
+app.get('/api/perfil', verificarToken, (req, res) => {
+  // Buscamos en tu tabla 'usuarios' usando el ID que sacamos del Token
+  const query = 'SELECT nombre, email, telefono, direccion, rol FROM usuarios WHERE id = ?';
+
+  db.query(query, [req.usuarioId], (err, result) => {
+    if (err) {
+      console.error('Error al consultar el perfil:', err);
+      return res.status(500).json({ error: 'Error del servidor al buscar el perfil.' });
+    }
+
+    if (result.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado.' });
+    }
+
+    // Le devolvemos al frontend la fila real encontrada
+    res.json(result[0]);
+  });
+});
 
 // Configurar el puerto
 const PORT = 5000;

@@ -26,7 +26,7 @@ function Sidebar() {
       <div className="space-y-8">
         {/* Encabezado del menú con botón de colapsar */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-4 mt-2">
-          {!isCollapsed && <h2 className="text-lg font-black tracking-tight text-blue-400 pl-2">🚲 Metola Bikes</h2>}
+          {!isCollapsed && <h2 className="text-lg font-black tracking-tight text-blue-400 pl-2">Metola Bikes</h2>}
           <button 
             onClick={() => setIsCollapsed(!isCollapsed)}
             className="p-1.5 hover:bg-slate-800 rounded-lg cursor-pointer text-slate-400 hover:text-white mx-auto"
@@ -43,19 +43,19 @@ function Sidebar() {
           </Link>
           <Link to="/products" className={linkClase('/productos')}>
             <Package className="w-5 h-5 shrink-0" />
-            {!isCollapsed && <span>Products</span>}
+            {!isCollapsed && <span>Productos</span>}
           </Link>
           <Link to="/cart" className={linkClase('/carrito')}>
             <ShoppingCart className="w-5 h-5 shrink-0" />
-            {!isCollapsed && <span>Cart</span>}
+            {!isCollapsed && <span>Carrito</span>}
           </Link>
           <Link to="/workshop" className={linkClase('/taller')}>
             <Wrench className="w-5 h-5 shrink-0" />
-            {!isCollapsed && <span>Workshop</span>}
+            {!isCollapsed && <span>Taller</span>}
           </Link>
           <Link to="/profile" className={linkClase('/perfil')}>
             <User className="w-5 h-5 shrink-0" />
-            {!isCollapsed && <span>Profile</span>}
+            {!isCollapsed && <span>Perfil</span>}
           </Link>
         </nav>
       </div>
@@ -68,7 +68,7 @@ function Sidebar() {
             ${isCollapsed ? 'justify-center' : 'justify-start'}`}
         >
           <LogOut className="w-4 h-4 shrink-0" /> 
-          {!isCollapsed && <span>Logout</span>}
+          {!isCollapsed && <span>Cerrar Sesión</span>}
         </button>
       </div>
     </aside>
