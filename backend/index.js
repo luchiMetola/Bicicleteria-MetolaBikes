@@ -213,6 +213,26 @@ app.get('/api/perfil', verificarToken, (req, res) => {
     res.json(result[0]);
   });
 });
+// RUTA PARA ACTUALIZAR LOS DATOS DEL PERFIL (DÍA 8 - EXTENSIÓN)
+app.put('/api/perfil', verificarToken, (req, res) => {
+  const { nombre, telefono, direccion } = req.body;
+
+  if (!nombre || !telefono || !direccion) {
+    return res.status(400).json({ error: 'Todos los campos son obligatorios para actualizar.' });
+  }
+
+  // Ejecutamos el UPDATE usando el ID del usuario extraído de forma segura del Token
+  const query = 'UPDATE usuarios SET nombre = ?, telefono = ?, direccion = ? WHERE id = ?';
+
+  db.query(query, [nombre, telefono, direccion, req.usuarioId], (err, result) => {
+    if (err) {
+      console.error('Error al actualizar el perfil en MySQL:', err);
+      return res.status(500).json({ error: 'Error del servidor al actualizar los datos.' });
+    }
+
+    res.json({ message: '¡Datos actualizados con éxito!' });
+  });
+});
 
 // Configurar el puerto
 const PORT = 5000;
