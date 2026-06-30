@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { House, Package, User, ShoppingCart, Wrench, LogOut, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Home, Package, User, ShoppingCart, Wrench, LogOut, ChevronLeft, ChevronRight } from 'lucide-react';
 
 function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -8,10 +8,9 @@ function Sidebar() {
 
   const cerrarSesion = () => {
     localStorage.removeItem('token');
-    window.location.href = '/login';
+    window.location.reload();
   };
 
-  // Función para marcar cuál enlace está activo
   const linkClase = (path) => {
     const base = "px-4 py-3 rounded-xl transition-all font-semibold text-sm flex items-center gap-3 ";
     return location.pathname === path 
@@ -24,7 +23,6 @@ function Sidebar() {
       ${isCollapsed ? 'w-20' : 'w-64'}`}
     >
       <div className="space-y-8">
-        {/* Encabezado del menú con botón de colapsar */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-4 mt-2">
           {!isCollapsed && <h2 className="text-lg font-black tracking-tight text-blue-400 pl-2">Metola Bikes</h2>}
           <button 
@@ -35,39 +33,37 @@ function Sidebar() {
           </button>
         </div>
         
-        {/* Navegación */}
         <nav className="flex flex-col space-y-2">
           <Link to="/" className={linkClase('/')}>
-            <House className="w-5 h-5 shrink-0" />
+            <Home className="w-5 h-5 shrink-0" />
             {!isCollapsed && <span>Home</span>}
           </Link>
-          <Link to="/products" className={linkClase('/productos')}>
+          <Link to="/products" className={linkClase('/products')}>
             <Package className="w-5 h-5 shrink-0" />
             {!isCollapsed && <span>Productos</span>}
           </Link>
-          <Link to="/cart" className={linkClase('/carrito')}>
+          <Link to="/cart" className={linkClase('/cart')}>
             <ShoppingCart className="w-5 h-5 shrink-0" />
             {!isCollapsed && <span>Carrito</span>}
           </Link>
-          <Link to="/workshop" className={linkClase('/taller')}>
+          <Link to="/workshop" className={linkClase('/workshop')}>
             <Wrench className="w-5 h-5 shrink-0" />
             {!isCollapsed && <span>Taller</span>}
           </Link>
-          <Link to="/profile" className={linkClase('/perfil')}>
+          <Link to="/profile" className={linkClase('/profile')}>
             <User className="w-5 h-5 shrink-0" />
             {!isCollapsed && <span>Perfil</span>}
           </Link>
         </nav>
       </div>
 
-      {/* Botón Cerrar Sesión */}
       <div>
         <button 
           onClick={cerrarSesion}
-          className={`w-full px-4 py-3 bg-red-600 hover:bg-red-700 rounded-xl transition-colors font-bold text-sm cursor-pointer shadow-sm flex items-center gap-2
+          className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs md:text-sm font-semibold text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 transition-all w-full text-left cursor-pointer
             ${isCollapsed ? 'justify-center' : 'justify-start'}`}
         >
-          <LogOut className="w-4 h-4 shrink-0" /> 
+          <LogOut className="w-5 h-5 flex shrink-0" /> 
           {!isCollapsed && <span>Cerrar Sesión</span>}
         </button>
       </div>

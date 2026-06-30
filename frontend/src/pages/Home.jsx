@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import Header from './Header';
+import Header from '../components/Header';
 
 function Home({ userName, addToCart }) {
   const [searchTerm, setSearchTerm] = useState('');

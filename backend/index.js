@@ -233,6 +233,185 @@ app.put('/api/perfil', verificarToken, (req, res) => {
     res.json({ message: '¡Datos actualizados con éxito!' });
   });
 });
+// RUTA HISTORIAL DE VENTAS REALES 
+// ==========================================
+app.get('/api/historial', verificarToken, (req, res) => {
+  const query = `
+    SELECT id, DATE_FORMAT(fecha, '%d/%m/%Y') AS fecha, total, estado_envio, tipo_venta 
+    FROM ventas 
+    WHERE id_usuario = ? 
+    ORDER BY id DESC
+  `;
+
+  db.query(query, [req.usuarioId], (err, results) => {
+    if (err) {
+      console.error('Error al consultar el historial de ventas:', err);
+      return res.status(500).json({ error: 'Error del servidor al buscar el historial.' });
+    }
+
+    // Devuelve un array (que puede estar vacío [] si el usuario no tiene compras aún)
+    res.json(results);
+  });
+});
+
+// NUEVA RUTA: PROCESAR PAGO (CREAR VENTA) - OPTIMIZADA
+// ==========================================
+app.post('/api/ventas/pagar', verificarToken, (req, res) => {
+  const { total, tipo_venta, metodo_entrega, direccion_envio, medio_pago } = req.body;
+
+  if (!total || !tipo_venta) {
+    return res.status(400).json({ error: 'Faltan datos obligatorios para procesar la venta.' });
+  }
+
+  // Definimos el estado inicial del envío según la opción elegida
+  let estado_envio = 'Pendiente de pago';
+  if (medio_pago === 'Tarjeta') {
+    estado_envio = metodo_entrega === 'Retiro en sucursal' ? 'Listo para retirar' : 'Preparando envío';
+  } else if (medio_pago === 'Transferencia') {
+    estado_envio = 'Esperando comprobante';
+  } else {
+    estado_envio = 'A coordinar en sucursal';
+  }
+
+  // La query con tus columnas reales de phpMyAdmin
+  const query = `
+    INSERT INTO ventas (id_usuario, fecha, total, tipo_venta, estado_envio) 
+    VALUES (?, NOW(), ?, ?, ?)
+  `;
+
+  // Cortamos el texto o lo hacemos más corto por si la columna de tu BD es chica (VARCHAR)
+  // Guardamos un resumen directo: "Web - Tarjeta - Envío a domicilio"
+  const resumenCortoVenta = `Web - ${medio_pago} - ${metodo_entrega}`;
+
+  db.query(query, [req.usuarioId, total, resumenCortoVenta, estado_envio], (err, result) => {
+    if (err) {
+      console.error('Error crítico al insertar la venta en MySQL:', err);
+      return res.status(500).json({ error: 'Error del servidor al procesar el pago.' });
+    }
+
+    res.status(201).json({ 
+      message: '¡Pago procesado con éxito y venta registrada!', 
+      id_venta: result.insertId 
+    });
+  });
+});
+// REGISTRAR LAS VENTAS PRESENCIAL (EMPLEADO - POS)
+// ==========================================
+app.post('/api/ventas/presencial', verificarToken, (req, res) => {
+  const { total, tipo_venta } = req.body;
+
+  if (!total || !tipo_venta) {
+    return res.status(400).json({ error: 'Faltan datos obligatorios para facturar.' });
+  }
+
+  // Las ventas de mostrador se entregan en el acto, por lo que el estado es 'Entregado en salón'
+  const estado_envio = 'Entregado en salón';
+
+  const query = `
+    INSERT INTO ventas (id_usuario, fecha, total, tipo_venta, estado_envio) 
+    VALUES (?, NOW(), ?, ?, ?)
+  `;
+
+  // req.usuarioId identifica al empleado que está realizando la facturación en la terminal
+  db.query(query, [req.usuarioId, total, `Mostrador: ${tipo_venta}`, estado_envio], (err, result) => {
+    if (err) {
+      console.error('Error al facturar en mostrador:', err);
+      return res.status(500).json({ error: 'Error del servidor al registrar la venta presencial.' });
+    }
+
+    res.status(201).json({ 
+      message: '¡Venta presencial facturada con éxito!', 
+      id_venta: result.insertId 
+    });
+  });
+});
+// ==========================================
+// RUTA INVENTARIO: CREAR / DUPLICAR PRODUCTO
+// ==========================================
+app.post('/api/productos', verificarToken, (req, res) => {
+  const { nombre, descripcion, precio, stock, imagen, id_categoria } = req.body;
+
+  const query = `
+    INSERT INTO productos (nombre, descripcion, precio, stock, imagen, id_categoria) 
+    VALUES (?, ?, ?, ?, ?, ?)
+  `;
+
+  db.query(query, [nombre, descripcion, precio, stock, imagen, id_categoria || 1], (err, result) => {
+    if (err) {
+      console.error('Error insertando producto:', err);
+      return res.status(500).json({ error: 'Error del servidor al registrar el producto.' });
+    }
+    res.status(201).json({ message: 'Producto guardado en inventario con éxito.', id: result.insertId });
+  });
+});
+
+// ==========================================
+// RUTA INVENTARIO: EDITAR DATOS Y STOCK
+// ==========================================
+app.put('/api/productos/:id', verificarToken, (req, res) => {
+  const { id } = req.params;
+  const { nombre, descripcion, precio, stock, imagen, id_categoria } = req.body;
+
+  const query = `
+    UPDATE productos 
+    SET nombre = ?, descripcion = ?, precio = ?, stock = ?, imagen = ?, id_categoria = ? 
+    WHERE id = ?
+  `;
+
+  db.query(query, [nombre, descripcion, precio, stock, imagen, id_categoria || 1, id], (err, result) => {
+    if (err) {
+      console.error('Error actualizando producto:', err);
+      return res.status(500).json({ error: 'Error del servidor al actualizar el producto.' });
+    }
+    res.json({ message: '¡Producto modificado con éxito!' });
+  });
+});
+
+// ==========================================
+// RUTA INVENTARIO: ELIMINAR PRODUCTO
+// ==========================================
+app.delete('/api/productos/:id', verificarToken, (req, res) => {
+  const { id } = req.params;
+  db.query('DELETE FROM productos WHERE id = ?', [id], (err, result) => {
+    if (err) {
+      console.error('Error eliminando producto:', err);
+      return res.status(500).json({ error: 'Error del servidor al eliminar el producto.' });
+    }
+    res.json({ message: 'Producto dado de baja correctamente.' });
+  });
+});
+// ==========================================================
+// RUTA TALLER: TRAER HORAS OCUPADAS POR FECHA (CLIENTE/POS)
+// ==========================================================
+app.get('/api/equipo/ocupados', verificarToken, (req, res) => {
+  const { date } = req.query; 
+
+  if (!date) {
+    return res.status(400).json({ error: 'Falta especificar la fecha de consulta.' });
+  }
+
+  // Buscamos los turnos cuya fecha empiece con el día seleccionado y que NO hayan sido rechazados
+  const query = `
+    SELECT equipo_dato 
+    FROM equipo 
+    WHERE equipo_dato LIKE ? AND estado != 'Rechazado'
+  `;
+
+  db.query(query, [`${date}%`], (err, results) => {
+    if (err) {
+      console.error('Error al verificar horarios ocupados:', err);
+      return res.status(500).json({ error: 'Error del servidor al consultar disponibilidad.' });
+    }
+
+    // Extraemos solo las horas (ej: si guardaste '2026-06-30 10:30', guardamos '10:30')
+    const takenHours = results.map(row => {
+      const parts = row.equipo_dato.split(' ');
+      return parts[1] || row.equipo_dato;
+    });
+
+    res.json(takenHours); // Devuelve un array tipo ['10:00', '11:30']
+  });
+});
 
 // Configurar el puerto
 const PORT = 5000;

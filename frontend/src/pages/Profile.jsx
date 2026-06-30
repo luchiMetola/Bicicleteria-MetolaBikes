@@ -13,34 +13,42 @@ function Profile() {
   const [editTelefono, setEditTelefono] = useState('');
   const [editDireccion, setEditDireccion] = useState('');
 
-  // Historial simulado por ahora
-  const [historial] = useState([
-    { id_venta: 101, fecha: '25/06/2026', total: 450000.00, estado: 'Entregado', producto: 'Mountain Bike R29' }
-  ]);
+  // Historial real: empieza como un array vacío
+  const [historial, setHistorial] = useState([]);
 
-  // 1. CARGA SEGURA: Definimos y ejecutamos la consulta asíncrona de manera recomendada por React
+  // CARGA SEGURA DE PERFIL E HISTORIAL DESDE LA BD
   useEffect(() => {
-    const consultarPerfilBD = async () => {
+    const cargarDatosUsuario = async () => {
       try {
         const token = localStorage.getItem('token');
-        const response = await axios.get('http://localhost:5000/api/perfil', {
+        
+        // 1. Petición para los datos personales del perfil
+        const perfilResponse = await axios.get('http://localhost:5000/api/perfil', {
           headers: { 'Authorization': `Bearer ${token}` }
         });
 
-        setUsuario(response.data);
-        setEditNombre(response.data.nombre || '');
-        setEditTelefono(response.data.telefono || '');
-        setEditDireccion(response.data.direccion || '');
+        setUsuario(perfilResponse.data);
+        setEditNombre(perfilResponse.data.nombre || '');
+        setEditTelefono(perfilResponse.data.telefono || '');
+        setEditDireccion(perfilResponse.data.direccion || '');
+
+        // 2. Petición para el historial de compras reales
+        const historialResponse = await axios.get('http://localhost:5000/api/historial', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        setHistorial(historialResponse.data);
+
       } catch (err) {
-        console.error('Error cargando el perfil real:', err);
-        setErrorCarga('No se pudo cargar la información de perfil desde el servidor.');
+        console.error('Error cargando los datos reales:', err);
+        setErrorCarga('No se pudo cargar la información completa desde el servidor.');
       }
     };
 
-    consultarPerfilBD();
+    cargarDatosUsuario();
   }, []); // Se ejecuta una sola vez al montar la pantalla
 
-  // 2. FUNCIÓN PARA ENVIAR LA ACTUALIZACIÓN PUT A MYSQL
+  // FUNCIÓN PARA ENVIAR LA ACTUALIZACIÓN PUT A MYSQL
   const guardarCambios = async (e) => {
     e.preventDefault();
     setErrorCarga('');
@@ -59,7 +67,6 @@ function Profile() {
       setSuccessMessage(response.data.message);
       setIsEditing(false);
       
-      // Refrescamos los estados de inmediato de forma manual tras el PUT exitoso
       setUsuario({
         ...usuario,
         nombre: editNombre,
@@ -96,6 +103,7 @@ function Profile() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 w-full">
         
+        {/* Bloque Información Personal */}
         <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-xs h-fit">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-4">
             <h2 className="text-lg font-bold text-slate-800">Información Personal</h2>
@@ -170,37 +178,42 @@ function Profile() {
           )}
         </div>
 
+        {/* Tabla Dinámica de Historial de Compras */}
         <div className="lg:col-span-2 bg-white border border-slate-200 p-6 rounded-2xl shadow-xs">
           <h2 className="text-lg font-bold text-slate-800 mb-4 border-b border-slate-100 pb-2 flex items-center gap-2">
             <ShoppingBag className="w-5 h-5 text-slate-500" /> Historial de Compras
           </h2>
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 text-slate-400 text-xs uppercase tracking-wider">
-                  <th className="py-3 font-semibold">Pedido ID</th>
-                  <th className="py-3 font-semibold">Producto</th>
-                  <th className="py-3 font-semibold">Fecha</th>
-                  <th className="py-3 font-semibold">Total</th>
-                  <th className="py-3 font-semibold">Estado</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
-                {historial.map((compra) => (
-                  <tr key={compra.id_venta}>
-                    <td className="py-4 text-slate-500">#{compra.id_venta}</td>
-                    <td className="py-4 text-slate-800">{compra.producto}</td>
-                    <td className="py-4">{compra.fecha}</td>
-                    <td className="py-4 text-emerald-600">${compra.total.toLocaleString('es-AR')}</td>
-                    <td className="py-4">
-                      <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold">
-                        {compra.estado}
-                      </span>
-                    </td>
+            {historial.length > 0 ? (
+              <table className="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 text-slate-400 text-xs uppercase tracking-wider">
+                    <th className="py-3 font-semibold">Pedido ID</th>
+                    <th className="py-3 font-semibold">Producto</th>
+                    <th className="py-3 font-semibold">Fecha</th>
+                    <th className="py-3 font-semibold">Total</th>
+                    <th className="py-3 font-semibold">Estado</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
+                  {historial.map((compra) => (
+                    <tr key={compra.id}>
+                      <td className="py-4 text-slate-500">#{compra.id}</td>
+                      <td className="py-4 text-slate-800">{compra.tipo_venta}</td>
+                      <td className="py-4">{compra.fecha}</td>
+                      <td className="py-4 text-emerald-600">${Number(compra.total).toLocaleString('es-AR')}</td>
+                      <td className="py-4">
+                        <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold">
+                          {compra.estado_envio || 'Pendiente'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="text-slate-400 text-sm italic py-4 text-center">Aún no has realizado ninguna compra en Metola Bikes.</p>
+            )}
           </div>
         </div>
 
