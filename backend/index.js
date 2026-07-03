@@ -8,8 +8,10 @@ require('dotenv').config();
 const app = express();
 
 // Middlewares
-app.use(cors());
-app.use(express.json()); 
+// Middlewares con límite de carga ampliado para soportar múltiples imágenes Base64
+app.use(express.json({ limit: '50mb' })); 
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(cors()); 
 
 // Configuración de la conexión a la base de datos
 const db = mysql.createConnection({
@@ -36,15 +38,36 @@ app.get('/', (req, res) => {
     res.send('El servidor de la Bicicletería está funcionando!');
 });
 
+// ==========================================================
+// RUTA CATÁLOGO GENERAL: CALCULA EL STOCK ACUMULADO REAL EN TIEMPO REAL
+// ==========================================================
 app.get('/productos', (req, res) => {
-    const query = 'SELECT * FROM Productos';
-    db.query(query, (err, results) => {
-        if (err) throw err;
-        res.json(results);
-    });
-});
+  // Usamos un LEFT JOIN y SUM para acumular dinámicamente el stock real de las variantes
+  const query = `
+    SELECT 
+      p.id, 
+      p.nombre, 
+      p.descripcion, 
+      p.precio, 
+      p.imagen, 
+      p.id_categoria,
+      IFNULL(SUM(v.stock), 0) AS stock
+    FROM productos p
+    LEFT JOIN producto_variantes v ON p.id = v.id_producto
+    GROUP BY p.id
+  `;
 
+  db.query(query, (err, results) => {
+    if (err) {
+      console.error('Error al consultar catálogo con stock acumulado real:', err);
+      return res.status(500).json({ error: 'Error del servidor al cargar los productos.' });
+    }
+    res.json(results);
+  });
+});
+// ==========================================
 // --- NUEVA RUTA: DÍA 3 - REGISTRO ---
+// ==========================================
 app.post('/api/auth/register', (req, res) => {
     const { nombre, email, contrasena, telefono, direccion, rol } = req.body;
 
@@ -88,8 +111,9 @@ app.post('/api/auth/register', (req, res) => {
         });
     });
 });
-
+// ==========================================
 // --- NUEVA RUTA: DÍA 2 - LOGIN ---
+// ==========================================
 app.post('/api/auth/login', (req, res) => {
     const { email, contrasena } = req.body;
 
@@ -137,8 +161,9 @@ app.post('/api/auth/login', (req, res) => {
     });
 });
 
-
+// ==========================================
 // Ruta para obtener todos los turnos de la tabla equipo
+// ==========================================
 app.get('/api/equipo', (req, res) => {
   const query = 'SELECT * FROM equipo ORDER BY equipo_dato ASC';
   
@@ -171,8 +196,9 @@ jwt.verify(tokenLimpio, JWT_SECRET, (err, decoded) => {
   next();
 });
 };
-
+// ==========================================
 // 2. RUTA DEL PERFIL: Trae los datos reales del usuario logueado usando su ID
+// ==========================================
 app.get('/api/perfil', verificarToken, (req, res) => {
   // Buscamos en tu tabla 'usuarios' usando el ID que sacamos del Token
   const query = 'SELECT nombre, email, telefono, direccion, rol FROM usuarios WHERE id = ?';
@@ -191,7 +217,9 @@ app.get('/api/perfil', verificarToken, (req, res) => {
     res.json(result[0]);
   });
 });
+// ==========================================
 // RUTA PARA ACTUALIZAR LOS DATOS DEL PERFIL (DÍA 8 - EXTENSIÓN)
+// ==========================================
 app.put('/api/perfil', verificarToken, (req, res) => {
   const { nombre, telefono, direccion } = req.body;
 
@@ -211,6 +239,7 @@ app.put('/api/perfil', verificarToken, (req, res) => {
     res.json({ message: '¡Datos actualizados con éxito!' });
   });
 });
+// ==========================================
 // RUTA HISTORIAL DE VENTAS REALES 
 // ==========================================
 app.get('/api/historial', verificarToken, (req, res) => {
@@ -231,14 +260,15 @@ app.get('/api/historial', verificarToken, (req, res) => {
     res.json(results);
   });
 });
-
-// NUEVA RUTA: PROCESAR PAGO (CREAR VENTA) - OPTIMIZADA
 // ==========================================
+// NUEVA RUTA: PROCESAR PAGO, DETALLE DE VENTA Y DESCUENTO DE STOCK VARIANTES AUTOMÁTICO
+// ===================================================================================
 app.post('/api/ventas/pagar', verificarToken, (req, res) => {
-  const { total, tipo_venta, metodo_entrega, direccion_envio, medio_pago } = req.body;
+  // Ahora el frontend debe enviarnos también el array de productos ('productosComprados') del carrito
+  const { total, tipo_venta, metodo_entrega, direccion_envio, medio_pago, productosComprados } = req.body;
 
-  if (!total || !tipo_venta) {
-    return res.status(400).json({ error: 'Faltan datos obligatorios para procesar la venta.' });
+  if (!total || !tipo_venta || !productosComprados || !Array.isArray(productosComprados)) {
+    return res.status(400).json({ error: 'Faltan datos obligatorios o el carrito está vacío para procesar la venta.' });
   }
 
   // Definimos el estado inicial del envío según la opción elegida
@@ -251,28 +281,87 @@ app.post('/api/ventas/pagar', verificarToken, (req, res) => {
     estado_envio = 'A coordinar en sucursal';
   }
 
-  // La query con tus columnas reales de phpMyAdmin
-  const query = `
+  const resumenCortoVenta = `Web - ${medio_pago} - ${metodo_entrega}`;
+
+  // 1. Insertamos la Cabecera de la Venta
+  const queryVenta = `
     INSERT INTO ventas (id_usuario, fecha, total, tipo_venta, estado_envio) 
     VALUES (?, NOW(), ?, ?, ?)
   `;
 
-  // Cortamos el texto o lo hacemos más corto por si la columna de tu BD es chica (VARCHAR)
-  // Guardamos un resumen directo: "Web - Tarjeta - Envío a domicilio"
-  const resumenCortoVenta = `Web - ${medio_pago} - ${metodo_entrega}`;
-
-  db.query(query, [req.usuarioId, total, resumenCortoVenta, estado_envio], (err, result) => {
+  db.query(queryVenta, [req.usuarioId, total, resumenCortoVenta, estado_envio], (err, result) => {
     if (err) {
       console.error('Error crítico al insertar la venta en MySQL:', err);
       return res.status(500).json({ error: 'Error del servidor al procesar el pago.' });
     }
 
-    res.status(201).json({ 
-      message: '¡Pago procesado con éxito y venta registrada!', 
-      id_venta: result.insertId 
+    const idVentaGenerada = result.insertId; // Recuperamos el ID de la venta que se acaba de crear
+
+    // 2. Recorremos con un bucle cada producto del carrito para guardar su detalle y restar stock
+    let erroresOcurridos = false;
+    let queriesCompletadas = 0;
+    const totalQueriesAEjecutar = productosComprados.length * 2; // 1 insert de detalle + 1 update de stock por cada item
+
+    if (productosComprados.length === 0) {
+      return res.status(201).json({ message: '¡Pago procesado con éxito!', id_venta: idVentaGenerada });
+    }
+
+    productosComprados.forEach((item) => {
+      // Mandamos de forma segura valores por defecto por si el producto no tiene variante (ej: un accesorio sin talle)
+      const colorSeleccionado = item.color || 'Único';
+      const rodadoTallaSeleccionado = item.rodado_talla || 'Único';
+      const cantidadComprada = item.cantidad || 1;
+      const precioUnitario = item.precio || 0;
+
+      // A) Insertar en la tabla intermedia 'detalle_venta' que creaste en phpMyAdmin
+      const queryDetalle = `
+        INSERT INTO detalle_venta (id_venta, id_producto, color, rodado_talla, cantidad, precio_unitario)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+
+      db.query(queryDetalle, [idVentaGenerada, item.id_producto, colorSeleccionado, rodadoTallaSeleccionado, cantidadComprada, precioUnitario], (errDet) => {
+        if (errDet) {
+          console.error('Error al insertar en detalle_venta:', errDet);
+          erroresOcurridos = true;
+        }
+        verificarFinalizacion();
+      });
+
+      // B) Restar el stock automatizado específicamente de la variante color/rodado elegida
+      const queryStock = `
+        UPDATE producto_variantes 
+        SET stock = stock - ? 
+        WHERE id_producto = ? AND color = ? AND rodado_talla = ?
+      `;
+
+      db.query(queryStock, [cantidadComprada, item.id_producto, colorSeleccionado, rodadoTallaSeleccionado], (errStock) => {
+        if (errStock) {
+          console.error('Error al actualizar el stock de la variante:', errStock);
+          erroresOcurridos = true;
+        }
+        verificarFinalizacion();
+      });
     });
+
+    // Función auxiliar para responderle al cliente una vez que terminaron de correr todos los inserts y updates
+    function verificarFinalizacion() {
+      queriesCompletadas++;
+      if (queriesCompletadas === totalQueriesAEjecutar) {
+        if (erroresOcurridos) {
+          return res.status(201).json({ 
+            message: '¡Pago registrado!, pero hubo un desajuste al procesar algunos artículos o su stock.', 
+            id_venta: idVentaGenerada 
+          });
+        }
+        return res.status(201).json({ 
+          message: '¡Pago procesado con éxito, venta registrada y stock de variantes actualizado!', 
+          id_venta: idVentaGenerada 
+        });
+      }
+    }
   });
 });
+// ==========================================
 // REGISTRAR LAS VENTAS PRESENCIAL (EMPLEADO - POS)
 // ==========================================
 app.post('/api/ventas/presencial', verificarToken, (req, res) => {
@@ -303,23 +392,66 @@ app.post('/api/ventas/presencial', verificarToken, (req, res) => {
     });
   });
 });
-// ==========================================
-// RUTA INVENTARIO: CREAR / DUPLICAR PRODUCTO
-// ==========================================
+// ===================================================================================
+// RUTA INVENTARIO: CREAR PRODUCTO GENERAL Y SUS VARIANTES FÍSICAS AUTOMÁTICAMENTE
+// ===================================================================================
 app.post('/api/productos', verificarToken, (req, res) => {
-  const { nombre, descripcion, precio, stock, imagen, id_categoria } = req.body;
+  const { nombre, descripcion, precio, stock, imagen, id_categoria, variantes } = req.body;
 
-  const query = `
+  if (!nombre || !precio) {
+    return res.status(400).json({ error: 'El nombre y el precio del insumo son obligatorios.' });
+  }
+
+  // 1. Insertamos la información base en la tabla Productos
+  const queryProducto = `
     INSERT INTO productos (nombre, descripcion, precio, stock, imagen, id_categoria) 
     VALUES (?, ?, ?, ?, ?, ?)
   `;
 
-  db.query(query, [nombre, descripcion, precio, stock, imagen, id_categoria || 1], (err, result) => {
+  db.query(queryProducto, [nombre, descripcion, precio, stock || 0, imagen || '🚲', id_categoria || 1], (err, result) => {
     if (err) {
-      console.error('Error insertando producto:', err);
+      console.error('Error insertando producto general:', err);
       return res.status(500).json({ error: 'Error del servidor al registrar el producto.' });
     }
-    res.status(201).json({ message: 'Producto guardado en inventario con éxito.', id: result.insertId });
+
+    const idProductoInsertado = result.insertId; // Capturamos el ID autogenerado del producto
+
+    // 2. Si el empleado nos envió desglose de variantes por renglón, los guardamos en producto_variantes
+    if (variantes && Array.isArray(variantes) && variantes.length > 0) {
+      let variantesGuardadas = 0;
+      let huboErrorVariante = false;
+
+      variantes.forEach((v) => {
+        const queryVariante = `
+          INSERT INTO producto_variantes (id_producto, color, rodado_talla, stock)
+          VALUES (?, ?, ?, ?)
+        `;
+
+        db.query(queryVariante, [idProductoInsertado, v.color || 'Único', v.size || 'Único', Number(v.stock || 0)], (errVar) => {
+          if (errVar) {
+            console.error('Error al insertar fila en producto_variantes:', errVar);
+            huboErrorVariante = true;
+          }
+          
+          variantesGuardadas++;
+          if (variantesGuardadas === variantes.length) {
+            if (huboErrorVariante) {
+              return res.status(201).json({ message: 'Producto guardado, pero algunas variantes no se pudieron desglosar.' });
+            }
+            return res.status(201).json({ message: '¡Producto y desglose completo de stock por variantes guardado con éxito!' });
+          }
+        });
+      });
+    } else {
+      // Si se cargó un accesorio simple sin variantes, creamos un renglón por defecto automáticamente
+      const queryVarianteDefault = `
+        INSERT INTO producto_variantes (id_producto, color, rodado_talla, stock)
+        VALUES (?, 'Único', 'Único', ?)
+      `;
+      db.query(queryVarianteDefault, [idProductoInsertado, stock || 0], () => {
+        return res.status(201).json({ message: 'Producto simple guardado en inventario con éxito.' });
+      });
+    }
   });
 });
 

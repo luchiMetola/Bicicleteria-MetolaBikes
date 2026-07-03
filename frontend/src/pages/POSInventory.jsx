@@ -1,25 +1,28 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Package, Plus, Edit, Copy, Trash2, CheckCircle, Upload } from 'lucide-react';
+import { Package, Plus, Edit, Trash2, CheckCircle, Upload, X } from 'lucide-react';
 
 function POSInventory() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [notification, setNotification] = useState({ text: '', type: '' });
 
-  // Form states in English
+  // Form states
   const [editingId, setEditingId] = useState(null);
   const [name, setName] = useState('');
   const [model, setModelo] = useState('');
   const [size, setRodado] = useState('');
-  const [colors, setColores] = useState('');
   const [features, setDescripcion] = useState('');
   const [price, setPrecio] = useState('');
-  const [stock, setStock] = useState('');
   const [categoryId, setIdCategory] = useState('1');
   
-  // Media states for REAL image file uploads (Base64 strings)
-  const [previewImage, setPreviewImage] = useState('');
+  // GESTIÓN DINÁMICA DE VARIANTES (Ej: Negro con Verde -> 3, Negra con Rosa -> 4)
+  const [variantsList, setVariantsList] = useState([
+    { color: '', size: '', stock: '' }
+  ]);
+
+  // SOPORTE PARA MÚLTIPLES IMÁGENES (Convertido en Array [])
+  const [previewImagesList, setPreviewImagesList] = useState([]);
   const [dragOver, setDragOver] = useState(false);
 
   useEffect(() => {
@@ -43,45 +46,80 @@ function POSInventory() {
     }
   };
 
-  const processImageFile = (file) => {
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setNotification({ text: 'Por favor, arrastrá únicamente archivos de imagen (PNG, JPG, JPEG).', type: 'error' });
-      return;
-    }
+  // Funciones para manipular la lista dinámica de variantes en el formulario
+  const handleAddVariantField = () => {
+    setVariantsList([...variantsList, { color: '', size: size || '', stock: '' }]);
+  };
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setPreviewImage(reader.result);
-    };
-    reader.readAsDataURL(file);
+  const handleRemoveVariantField = (index) => {
+    const updated = variantsList.filter((_, i) => i !== index);
+    setVariantsList(updated);
+  };
+
+  const handleVariantChange = (index, field, value) => {
+    const updated = [...variantsList];
+    updated[index][field] = value;
+    setVariantsList(updated);
+  };
+
+  // PROCESAMIENTO MULTIMEDIA PARA MÚLTIPLES IMÁGENES
+  const processImageFiles = (files) => {
+    if (!files || files.length === 0) return;
+
+    Array.from(files).forEach(file => {
+      if (!file.type.startsWith('image/')) {
+        setNotification({ text: 'Por favor, selecciona únicamente archivos de imagen.', type: 'error' });
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        // Añade la nueva imagen en Base64 al array existente de imágenes
+        setPreviewImagesList(prev => [...prev, reader.result]);
+      };
+      reader.readAsDataURL(file);
+    });
   };
 
   const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    processImageFile(file);
+    const files = e.target.files;
+    processImageFiles(files);
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
     setDragOver(false);
-    const file = e.dataTransfer.files[0];
-    processImageFile(file);
+    const files = e.dataTransfer.files;
+    processImageFiles(files);
+  };
+
+  const handleRemoveImage = (indexToRemove) => {
+    setPreviewImagesList(prev => prev.filter((_, idx) => idx !== indexToRemove));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     
-    const formattedDescription = `Modelo: ${model} | Rodado/Talle: ${size} | Colores: ${colors} | Detalles: ${features}`;
+    // Calculamos el stock total sumando el desglose de todas las variantes ingresadas
+    const calculatedTotalStock = variantsList.reduce((acc, curr) => acc + Number(curr.stock || 0), 0);
+
+    // Mapeamos los textos simples para el campo descriptivo histórico
+    const uniqueColorsText = [...new Set(variantsList.map(v => v.color).filter(Boolean))].join(', ');
+    const uniqueSizesText = size || [...new Set(variantsList.map(v => v.size).filter(Boolean))].join(', ');
+
+    const formattedDescription = `Modelo: ${model} | Rodado/Talle: ${uniqueSizesText} | Colores: ${uniqueColorsText} | Detalles: ${features}`;
+
+    // Si hay múltiples imágenes, las mandamos juntas separadas por una coma, o pasamos la primera/default
+    const imagesPayloadString = previewImagesList.length > 0 ? previewImagesList.join('|') : '🚲';
 
     const payload = {
       nombre: name,
       descripcion: formattedDescription,
       precio: Number(price),
-      stock: Number(stock),
-      imagen: previewImage || '🚲',
-      id_categoria: Number(categoryId)
+      stock: calculatedTotalStock, 
+      imagen: imagesPayloadString, // Envía la cadena unificada de imágenes
+      id_categoria: Number(categoryId),
+      variantes: variantsList 
     };
 
     try {
@@ -109,30 +147,23 @@ function POSInventory() {
     }
   };
 
-  const handleDuplicate = (product) => {
-    setEditingId(null);
-    setName(`${product.nombre} (Copia)`);
-    setPrecio(product.precio);
-    setStock(product.stock);
-    setIdCategory(product.id_categoria || '1');
-    setPreviewImage(product.imagen || '');
-    
-    setModelo('');
-    setRodado('');
-    setColores('');
-    setDescripcion('');
-    
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
   const handleEdit = (product) => {
     setEditingId(product.id);
     setName(product.nombre);
     setPrecio(product.precio);
-    setStock(product.stock);
+    
+    // Desglosa las imágenes si vienen separadas por barra vertical '|'
+    if (product.imagen && product.imagen.includes('|')) {
+      setPreviewImagesList(product.imagen.split('|'));
+    } else {
+      setPreviewImagesList(product.imagen && product.imagen !== '🚲' ? [product.imagen] : []);
+    }
+    
     setIdCategory(product.id_categoria || '1');
-    setPreviewImage(product.imagen || '');
+    setModelo('Único');
+    setRodado('');
     setDescripcion(product.descripcion || '');
+    setVariantsList([{ color: 'Único', size: 'Único', stock: product.stock }]);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -140,16 +171,14 @@ function POSInventory() {
     if (!window.confirm('¿Seguro que deseas dar de baja este producto del catálogo?')) return;
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.delete(`http://localhost:5000/api/productos/${id}`, {
+      await axios.delete(`http://localhost:5000/api/productos/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setNotification({ text: res.data.message, type: 'success' });
+      setNotification({ text: 'Producto dado de baja correctamente.', type: 'success' });
       fetchProductsAfterAction();
     } catch (error) {
       console.error('Delete execution failed:', error);
-      setNotification({ text: 'No se pudo eliminar el producto.', type: 'error' });
     }
-    setTimeout(() => setNotification({ text: '', type: '' }), 4000);
   };
 
   const handleClearForm = () => {
@@ -157,11 +186,10 @@ function POSInventory() {
     setName('');
     setModelo('');
     setRodado('');
-    setColores('');
     setDescripcion('');
-    setStock('');
     setPrecio('');
-    setPreviewImage('');
+    setPreviewImagesList([]);
+    setVariantsList([{ color: '', size: '', stock: '' }]);
   };
 
   return (
@@ -170,7 +198,7 @@ function POSInventory() {
         <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2">
           <Package className="w-6 h-6 text-blue-600" /> Control de Inventario & Stock
         </h1>
-        <p className="text-slate-500 text-xs mt-0.5">Administración unificada del catálogo digital de salón y e-commerce.</p>
+        <p className="text-slate-500 text-xs mt-0.5">Administración unificada de productos dividida por variantes físicas.</p>
       </header>
 
       {notification.text && (
@@ -185,77 +213,119 @@ function POSInventory() {
           {editingId ? `Modificando Producto ID: #${editingId}` : 'Registrar Nuevo Producto'}
         </h3>
         
-        {/* CORRECTED: Removed the early self-closing slash from the form tag */}
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-medium text-slate-600">
-          <div>
-            <label className="block text-[11px] font-bold uppercase mb-1">Nombre del Producto:</label>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} required placeholder="Ej: Bicicleta Mountain Bike Venzo" className="w-full p-2.5 border border-slate-300 rounded-xl" />
-          </div>
-          <div>
-            <label className="block text-[11px] font-bold uppercase mb-1">Modelo / Año:</label>
-            <input type="text" value={model} onChange={(e) => setModelo(e.target.value)} required={!editingId} disabled={!!editingId} placeholder={editingId ? "Ver detalles abajo" : "Ej: Talon 2026"} className="w-full p-2.5 border border-slate-300 rounded-xl disabled:bg-slate-50" />
-          </div>
-          <div>
-            <label className="block text-[11px] font-bold uppercase mb-1">Talle / Rodado:</label>
-            <input type="text" value={size} onChange={(e) => setRodado(e.target.value)} required={!editingId} disabled={!!editingId} placeholder={editingId ? "Ver detalles abajo" : "Ej: Rodado 29 - Talle L"} className="w-full p-2.5 border border-slate-300 rounded-xl disabled:bg-slate-50" />
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="block text-[11px] font-bold uppercase mb-1">Descripción / Componentes:</label>
-            <input type="text" value={features} onChange={(e) => setDescripcion(e.target.value)} placeholder="Frenos hidráulicos, cambios shimano, suspensión, etc." className="w-full p-2.5 border border-slate-300 rounded-xl" />
-          </div>
-          <div>
-            <label className="block text-[11px] font-bold uppercase mb-1">Opciones de Colores (Separados por coma):</label>
-            <input type="text" value={colors} onChange={(e) => setColores(e.target.value)} required={!editingId} disabled={!!editingId} placeholder={editingId ? "Ver detalles abajo" : "Negro, Azul, Rojo"} className="w-full p-2.5 border border-slate-300 rounded-xl disabled:bg-slate-50" />
+        <form onSubmit={handleSubmit} className="space-y-4 text-xs font-medium text-slate-600">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-[11px] font-bold uppercase mb-1">Nombre Base del Producto:</label>
+              <input type="text" value={name} onChange={(e) => setName(e.target.value)} required placeholder="Ej: Bicicleta Venzo Raptor" className="w-full p-2.5 border border-slate-300 rounded-xl bg-white text-slate-800 font-medium" />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold uppercase mb-1">Modelo / Año:</label>
+              <input type="text" value={model} onChange={(e) => setModelo(e.target.value)} required placeholder="Ej: Raptor 2026" className="w-full p-2.5 border border-slate-300 rounded-xl bg-white text-slate-800 font-medium" />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold uppercase mb-1">Precio Unitario ($):</label>
+              <input type="number" value={price} onChange={(e) => setPrecio(e.target.value)} required placeholder="Precio de venta base" className="w-full p-2.5 border border-slate-300 rounded-xl font-bold text-slate-800 bg-white" />
+            </div>
           </div>
 
-          <div>
-            <label className="block text-[11px] font-bold uppercase mb-1">Precio Unitario ($):</label>
-            <input type="number" value={price} onChange={(e) => setPrecio(e.target.value)} required placeholder="Monto base de venta" className="w-full p-2.5 border border-slate-300 rounded-xl font-bold text-slate-800" />
-          </div>
-          <div>
-            <label className="block text-[11px] font-bold uppercase mb-1">Cantidad Inicial en Stock:</label>
-            <input type="number" value={stock} onChange={(e) => setStock(e.target.value)} required placeholder="Unidades disponibles" className="w-full p-2.5 border border-slate-300 rounded-xl font-bold text-slate-800" />
-          </div>
-          <div>
-            <label className="block text-[11px] font-bold uppercase mb-1">Categoría del Producto:</label>
-            <select value={categoryId} onChange={(e) => setIdCategory(e.target.value)} className="w-full p-2.5 border border-slate-300 rounded-xl bg-white font-semibold">
-              <option value="1">Bicicletas</option>
-              <option value="2">Accesorios</option>
-              <option value="3">Indumentaria</option>
-              <option value="4">Suplementos</option>
-            </select>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="md:col-span-2">
+              <label className="block text-[11px] font-bold uppercase mb-1">Descripción / Ficha de Componentes:</label>
+              <input type="text" value={features} onChange={(e) => setDescripcion(e.target.value)} placeholder="Frenos hidráulicos, cambios shimano, suspensión, etc." className="w-full p-2.5 border border-slate-300 rounded-xl bg-white text-slate-800 font-medium" />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold uppercase mb-1">Categoría:</label>
+              <select value={categoryId} onChange={(e) => setIdCategory(e.target.value)} className="w-full p-2.5 border border-slate-300 rounded-xl bg-white font-bold text-slate-700">
+                <option value="1">Bicicletas</option>
+                <option value="2">Accesorios</option>
+                <option value="3">Indumentaria</option>
+                <option value="4">Suplementos</option>
+              </select>
+            </div>
           </div>
 
-          {/* REAL DRAG AND DROP MULTIMEDIA BOX - CORRECTED TAG BALANCING */}
-          <div className="md:col-span-3">
-            <label className="block text-[11px] font-bold uppercase mb-1">Imágenes del Producto (Variantes):</label>
+          {/* SECCIÓN INTERACTIVA: DESGLOSE PRECISO DE STOCK POR VARIANTES */}
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+            <div className="flex justify-between items-center border-b border-slate-200 pb-2">
+              <h4 className="text-[11px] font-black uppercase text-slate-500 tracking-wider">Desglose Físico de Variantes y Cantidades</h4>
+              <button 
+                type="button" onClick={handleAddVariantField}
+                className="bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-lg font-black tracking-wide uppercase text-[10px] cursor-pointer flex items-center gap-1"
+              >
+                <Plus className="w-3 h-3" /> Añadir Otra Combinación
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {variantsList.map((v, idx) => (
+                <div key={idx} className="flex gap-2 items-center flex-wrap sm:flex-nowrap bg-white p-2.5 border border-slate-200 rounded-xl shadow-2xs">
+                  <div className="flex-1 min-w [120px]">
+                    <label className="block text-[9px] font-bold uppercase text-slate-400 mb-0.5">Color variante:</label>
+                    <input type="text" required value={v.color} onChange={(e) => handleVariantChange(idx, 'color', e.target.value)} placeholder="Ej: Negro con Verde" className="w-full p-1.5 border border-slate-300 rounded-lg text-slate-800 font-semibold" />
+                  </div>
+                  <div className="flex-1 min-w [100px]">
+                    <label className="block text-[9px] font-bold uppercase text-slate-400 mb-0.5">Rodado / Talle:</label>
+                    <input type="text" required value={v.size} onChange={(e) => handleVariantChange(idx, 'size', e.target.value)} placeholder="Ej: Rodado 29" className="w-full p-1.5 border border-slate-300 rounded-lg text-slate-800 font-semibold" />
+                  </div>
+                  <div className="w-24">
+                    <label className="block text-[9px] font-bold uppercase text-slate-400 mb-0.5">Stock de este item:</label>
+                    <input type="number" required value={v.stock} onChange={(e) => handleVariantChange(idx, 'stock', e.target.value)} placeholder="Cant." className="w-full p-1.5 border border-slate-300 rounded-lg text-slate-800 font-bold text-center" />
+                  </div>
+                  {variantsList.length > 1 && (
+                    <button 
+                      type="button" onClick={() => handleRemoveVariantField(idx)}
+                      className="mt-4 p-1.5 text-slate-400 hover:text-rose-600 rounded-lg"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* GESTIÓN MULTI-IMAGEN CON AGREGADO DINÁMICO */}
+          <div>
+            <label className="block text-[11px] font-bold uppercase mb-1">Imágenes Ilustrativas de las Variantes:</label>
             <div 
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
               onDrop={handleDrop}
-              className={`border-2 border-dashed rounded-2xl p-6 text-center transition-colors flex flex-col items-center justify-center gap-2 cursor-pointer ${
+              onClick={() => document.getElementById('file-upload-input').click()}
+              className={`border-2 border-dashed rounded-2xl p-5 text-center transition-colors flex flex-col items-center justify-center gap-1 cursor-pointer ${
                 dragOver ? 'border-blue-500 bg-blue-50/50' : 'border-slate-300 hover:bg-slate-50'
               }`}
             >
-              <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
-              {previewImage && previewImage.startsWith('data:image') ? (
-                <img src={previewImage} alt="Preview" className="h-20 w-20 object-contain rounded-xl border border-slate-200 bg-white" />
-              ) : (
-                <Upload className="w-6 h-6 text-slate-400" />
-              )}
-              <p className="text-slate-600 font-semibold">Arrastrá una imagen real aquí o hacé clic para buscar</p>
-              <p className="text-[10px] text-slate-400">Admite archivos PNG, JPG o JPEG.</p>
+              <input id="file-upload-input" type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
+              <Upload className="w-5 h-5 text-slate-400" />
+              <p className="text-slate-600 font-bold text-[11px]">Arrastrá tus fotos aquí o hacé clic (Podés seleccionar varias a la vez)</p>
             </div>
+
+            {/* GRILLA PREVIEW DE IMÁGENES CARGADAS */}
+            {previewImagesList.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-3 p-3 bg-slate-100 rounded-2xl border border-slate-200">
+                {previewImagesList.map((imgStr, index) => (
+                  <div key={index} className="relative group w-16 h-16 bg-white rounded-xl border border-slate-300 overflow-hidden flex items-center justify-center shadow-2xs">
+                    <img src={imgStr} alt={`Preview ${index}`} className="w-full h-full object-contain" />
+                    <button 
+                      type="button" 
+                      onClick={(e) => { e.stopPropagation(); handleRemoveImage(index); }}
+                      className="absolute top-0.5 right-0.5 bg-black/70 hover:bg-rose-600 text-white p-0.5 rounded-md transition-colors"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          <div className="md:col-span-3 flex justify-end gap-2 pt-2">
+          <div className="flex justify-end gap-2 pt-2">
             {editingId && (
-              <button type="button" onClick={handleClearForm} className="px-4 py-2 bg-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer">
-                Cancelar Edición
-              </button>
+              <button type="button" onClick={handleClearForm} className="px-4 py-2 bg-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer">Cancelar Edición</button>
             )}
-            <button type="submit" disabled={loading} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md cursor-pointer flex items-center gap-1">
+            <button type="submit" disabled={loading} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md cursor-pointer flex items-center gap-1 uppercase tracking-wide">
               <Plus className="w-4 h-4" /> {editingId ? 'Guardar Cambios' : 'Registrar en Catálogo'}
             </button>
           </div>
@@ -264,50 +334,49 @@ function POSInventory() {
 
       {/* TABLA DE CONTROL */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs overflow-x-auto">
-        <h3 className="text-sm font-bold text-slate-800 mb-4">
-          Lista de Control General de Stock ({products.length} ítems)
-        </h3>
-
+        <h3 className="text-sm font-bold text-slate-800 mb-4">Lista de Control General de Stock ({products.length} ítems)</h3>
         <table className="w-full text-left text-xs border-collapse">
           <thead>
             <tr className="border-b border-slate-200 text-slate-400 uppercase font-bold tracking-wider">
               <th className="py-3 pl-2">ID</th>
               <th className="py-3">Visual</th>
               <th className="py-3">Producto</th>
-              <th className="py-3">Ficha Técnica / Descripción Completa</th>
-              <th className="py-3">Stock</th>
+              <th className="py-3">Ficha Técnica Formateada</th>
+              <th className="py-3">Stock Acumulado</th>
               <th className="py-3">Precio</th>
               <th className="py-3 text-right pr-2">Acciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-slate-600 font-semibold">
-            {products.map((prod) => (
-              <tr key={prod.id} className="hover:bg-slate-50/80 transition-colors">
-                <td className="py-3 pl-2 text-slate-400">#{prod.id}</td>
-                <td className="py-3 text-xl">
-                  {prod.imagen && prod.imagen.startsWith('data:image') ? (
-                    <img src={prod.imagen} alt="Preview" className="w-8 h-8 rounded-lg object-cover border border-slate-200" />
-                  ) : (
-                    prod.imagen || '🚲'
-                  )}
-                </td>
-                <td className="py-3 font-bold text-slate-800">{prod.nombre}</td>
-                <td className="py-3 text-slate-500 max-w-xs truncate" title={prod.descripcion}>{prod.descripcion || 'Sin descripción'}</td>
-                <td className="py-3">
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                    prod.stock <= 0 ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                  }`}>
-                    {prod.stock} un.
-                  </span>
-                </td>
-                <td className="py-3 text-slate-900 font-black">${Number(prod.precio).toLocaleString('es-AR')}</td>
-                <td className="py-3 text-right pr-2 space-x-1">
-                  <button onClick={() => handleEdit(prod)} title="Editar" className="p-1.5 hover:bg-slate-100 rounded-lg text-blue-600 cursor-pointer inline-flex items-center"><Edit className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => handleDuplicate(prod)} title="Duplicar (Clonar)" className="p-1.5 hover:bg-slate-100 rounded-lg text-amber-600 cursor-pointer inline-flex items-center"><Copy className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => handleDelete(prod.id)} title="Dar de baja" className="p-1.5 hover:bg-slate-100 rounded-lg text-rose-600 cursor-pointer inline-flex items-center"><Trash2 className="w-3.5 h-3.5" /></button>
-                </td>
-              </tr>
-            ))}
+            {products.map((prod) => {
+              // Muestra la primera imagen si es un conjunto separado por '|'
+              const displayImg = prod.imagen && prod.imagen.includes('|') ? prod.imagen.split('|')[0] : prod.imagen;
+              
+              return (
+                <tr key={prod.id} className="hover:bg-slate-50/80 transition-colors">
+                  <td className="py-3 pl-2 text-slate-400">#{prod.id}</td>
+                  <td className="py-3 text-xl">
+                    {displayImg && displayImg.startsWith('data:image') ? (
+                      <img src={displayImg} alt="Preview" className="w-8 h-8 rounded-lg object-cover border border-slate-200" />
+                    ) : (
+                      displayImg || '🚲'
+                    )}
+                  </td>
+                  <td className="py-3 font-bold text-slate-800">{prod.nombre}</td>
+                  <td className="py-3 text-slate-500 max-w-xs truncate" title={prod.descripcion}>{prod.descripcion || 'Sin descripción'}</td>
+                  <td className="py-3">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${prod.stock <= 0 ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+                      {prod.stock} un.
+                    </span>
+                  </td>
+                  <td className="py-3 text-slate-900 font-black">${Number(prod.precio).toLocaleString('es-AR')}</td>
+                  <td className="py-3 text-right pr-2 space-x-1">
+                    <button onClick={() => handleEdit(prod)} title="Editar" className="p-1.5 hover:bg-slate-100 rounded-lg text-blue-600 cursor-pointer inline-flex items-center"><Edit className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => handleDelete(prod.id)} title="Dar de baja" className="p-1.5 hover:bg-slate-100 rounded-lg text-rose-600 cursor-pointer inline-flex items-center"><Trash2 className="w-3.5 h-3.5" /></button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

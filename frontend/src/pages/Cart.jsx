@@ -60,9 +60,6 @@ function Cart({ userName, cartItems, updateQuantity, removeFromCart, globalCP, s
     setLoading(true);
     setErrorCheckout('');
 
-    // Creamos un string con los nombres de los productos para guardarlos en la bd
-    const productosComprados = cartItems.map(i => `${i.nombre} x${i.cantidad}`).join(', ');
-
     try {
       const token = localStorage.getItem('token');
       if (!token) {
@@ -71,14 +68,26 @@ function Cart({ userName, cartItems, updateQuantity, removeFromCart, globalCP, s
         return;
       }
 
+      // 1. Mapeamos de forma idéntica las propiedades con lo que lee tu backend/index.js
+      const productosEstructurados = cartItems.map(item => ({
+        id_producto: item.id,
+        color: item.colorElegido || 'Único', 
+        rodado_talla: item.rodado || 'Único', 
+        cantidad: item.cantidad,
+        precio: item.precio
+      }));
+
+      // 2. Armamos el payload unificado usando las variables correctas
       const payload = {
         total: totalGeneral,
-        tipo_venta: `Web: ${productosComprados}`,
+        tipo_venta: 'Web',
         metodo_entrega: metodoEntrega,
-        direccion_envio: metodoEntrega === 'Retiro en sucursal' ? 'Retiro en Caucete' : direccionConfirmada,
-        medio_pago: medioPago
+        direccion_envio: metodoEntrega === 'Retiro en sucursal' ? 'Local Caucete' : direccionConfirmada,
+        medio_pago: medioPago,
+        productosComprados: productosEstructurados 
       };
 
+      // 3. Hacemos una única petición POST limpia (YA SIN EL COPIADO SUELTO ANTERIOR)
       const response = await axios.post('http://localhost:5000/api/ventas/pagar', payload, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -90,7 +99,7 @@ function Cart({ userName, cartItems, updateQuantity, removeFromCart, globalCP, s
         setIsCheckoutOpen(false);
         setMensajeExito('');
         if (typeof clearCart === 'function') {
-          clearCart(); // Esta función debe estar declarada en App.jsx para resetear el estado global del carrito
+          clearCart(); // Resetea el estado global en App.jsx
         }
       }, 3000);
 
@@ -120,49 +129,62 @@ function Cart({ userName, cartItems, updateQuantity, removeFromCart, globalCP, s
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full">
           {/* Lista de Items */}
           <div className="lg:col-span-2 space-y-3">
-            {cartItems.map((item) => (
-              <div key={`${item.id}-${item.colorElegido}`} className="bg-white border border-slate-200 p-4 rounded-2xl shadow-xs flex items-center justify-between gap-4 flex-wrap sm:flex-nowrap">
-                <div className="flex items-center gap-3">
-                  <span className="text-4xl">{item.imagen}</span>
-                  <div>
-                    <h3 className="text-slate-800 font-bold text-sm md:text-base">{item.nombre}</h3>
-                    <p className="text-xs bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded border border-slate-200 mt-1 w-fit">
-                      Color: {item.colorElegido}
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="flex items-center gap-6 justify-between w-full sm:w-auto">
-                  <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl border border-slate-200">
-                    <button 
-                      onClick={() => updateQuantity(item.id, item.colorElegido, -1)}
-                      className="w-7 h-7 bg-white rounded-lg text-slate-700 font-black text-sm flex items-center justify-center hover:bg-slate-50 cursor-pointer"
-                    >
-                      -
-                    </button>
-                    <span className="text-slate-800 font-bold text-sm px-2 min-w-20px text-center">{item.cantidad}</span>
-                    <button 
-                      onClick={() => updateQuantity(item.id, item.colorElegido, 1)}
-                      className="w-7 h-7 bg-white rounded-lg text-slate-700 font-black text-sm flex items-center justify-center hover:bg-slate-50 cursor-pointer"
-                    >
-                      +
-                    </button>
-                  </div>
+            {cartItems.map((item) => {
+              const displayImg = item.imagen && item.imagen.includes('|') ? item.imagen.split('|')[0] : item.imagen;
 
-                  <div className="flex items-center gap-4">
-                    <p className="text-slate-800 font-black text-sm md:text-base min-w-80px text-right">
-                      ${(item.precio * item.cantidad).toLocaleString('es-AR')}
-                    </p>
-                    <button 
-                      onClick={() => removeFromCart(item.id, item.colorElegido)} 
-                      className="text-slate-400 hover:text-red-500 cursor-pointer p-1"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+              return (
+                <div key={`${item.id}-${item.colorElegido}`} className="bg-white border border-slate-200 p-4 rounded-2xl shadow-xs flex items-center justify-between gap-4 flex-wrap sm:flex-nowrap">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 flex items-center justify-center text-4xl overflow-hidden">
+                      {displayImg && displayImg.startsWith('data:image') ? (
+                        <img src={displayImg} alt={item.nombre} className="w-full h-full object-cover rounded-lg border border-slate-200" />
+                      ) : (
+                        displayImg || '🚲'
+                      )}
+                    </div>
+                    <div>
+                      <h3 className="text-slate-800 font-bold text-sm md:text-base">{item.nombre}</h3>
+                      <p className="text-xs bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded border border-slate-200 mt-1 w-fit">
+                        Color: {item.colorElegido} | Rodado: {item.rodado}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-6 justify-between w-full sm:w-auto">
+                    <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                      <button 
+                        type="button"
+                        onClick={() => updateQuantity(item.id, item.colorElegido, -1)}
+                        className="w-7 h-7 bg-white rounded-lg text-slate-700 font-black text-sm flex items-center justify-center hover:bg-slate-50 cursor-pointer"
+                      >
+                        -
+                      </button>
+                      <span className="text-slate-800 font-bold text-sm px-2 min-w-20px text-center">{item.cantidad}</span>
+                      <button 
+                        type="button"
+                        onClick={() => updateQuantity(item.id, item.colorElegido, 1)}
+                        disabled={item.cantidad >= item.stock} // Bloquea si iguala o supera las unidades que cargó el empleado
+                        className="w-7 h-7 bg-white rounded-lg text-slate-700 font-black text-sm flex items-center justify-center hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        +
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                      <p className="text-slate-800 font-black text-sm md:text-base min-w-80px text-right">
+                        ${(item.precio * item.cantidad).toLocaleString('es-AR')}
+                      </p>
+                      <button 
+                        onClick={() => removeFromCart(item.id, item.colorElegido)} 
+                        className="text-slate-400 hover:text-red-500 cursor-pointer p-1"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Resumen de Compra */}
@@ -211,7 +233,7 @@ function Cart({ userName, cartItems, updateQuantity, removeFromCart, globalCP, s
         </div>
       )}
 
-      {/* MODAL DE PROCESAR PAGO / CHECKOUT INTERACTIVO */}
+      {/* MODAL DE PROCESAR PAGO */}
       {isCheckoutOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
           <div className="bg-white rounded-3xl border border-slate-200 max-w-md w-full p-6 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150">

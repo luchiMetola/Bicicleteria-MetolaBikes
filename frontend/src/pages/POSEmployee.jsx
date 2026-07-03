@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { ShoppingBag, CreditCard, Plus, Trash2, CheckCircle, Search, Minus } from 'lucide-react';
+import { ShoppingBag, CreditCard, Plus, Trash2, CheckCircle, Search, Minus, AlertCircle } from 'lucide-react';
 
 function POSEmployee() {
   const [productos, setProductos] = useState([]);
@@ -73,7 +73,7 @@ function POSEmployee() {
     prod.nombre.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // 6. Confirmar la facturación e impactar en MySQL
+  // 6. Confirmar la facturación e impactar en MySQL (Con descuento automatizado de variantes)
   const procesarFacturacionMostrador = async (e) => {
     e.preventDefault();
     if (listaFactura.length === 0) return;
@@ -81,22 +81,41 @@ function POSEmployee() {
     setErrorMessage('');
     setSuccessMessage('');
 
-    const detalleProductos = listaFactura.map((i) => `${i.nombre} (x${i.cantidad})`).join(', ');
+    // Preparamos el desglose descriptivo de la boleta
+    const detalleProductosString = listaFactura.map((i) => `${i.nombre} (x${i.cantidad})`).join(', ');
+
+    // Estructuramos los productos comprados para que la API reste el stock de la variante
+    const productosEstructurados = listaFactura.map(item => ({
+      id_producto: item.id,
+      color: 'Único', // Por defecto 'Único' si es mostrador rápido, o podés expandirlo luego
+      rodado_talla: 'Único',
+      cantidad: item.cantidad,
+      precio: item.precio
+    }));
 
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.post(
-        'http://localhost:5000/api/ventas/presencial',
-        {
-          total: totalFactura,
-          tipo_venta: `${detalleProductos} [Pago: ${medioPago}]`,
-        },
+      
+      // Enviamos el payload estructurado igual al que armamos para la web para reutilizar la lógica atómica
+      const payload = {
+        total: totalFactura,
+        tipo_venta: `Mostrador: ${detalleProductosString}`,
+        metodo_entrega: 'Retiro en sucursal',
+        direccion_envio: 'Salón de Ventas',
+        medio_pago: medioPago,
+        productosComprados: productosEstructurados
+      };
+
+      // CORRECCIÓN: Quitamos la declaración "const response =" ya que no se usaba
+      await axios.post(
+        'http://localhost:5000/api/ventas/pagar', // Apunta a tu ruta optimizada que descuenta stock variantes
+        payload,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
 
-      setSuccessMessage(response.data.message);
+      setSuccessMessage('¡Venta presencial facturada con éxito y stock descontado!');
       
       // Reseteamos la caja para el siguiente cliente
       setListaFactura([]);
@@ -124,17 +143,17 @@ function POSEmployee() {
 
       {/* Alertas Globales */}
       {successMessage && (
-        <div className="mb-4 p-3 bg-emerald-950 border border-emerald-500 text-emerald-400 rounded-xl text-xs font-bold flex items-center gap-2 animate-pulse">
+        <div className="mb-4 p-3 bg-emerald-950 border border-emerald-500 text-emerald-400 rounded-xl text-xs font-bold flex items-center gap-2">
           <CheckCircle className="w-4 h-4" /> {successMessage}
         </div>
       )}
       {errorMessage && (
-        <div className="mb-4 p-3 bg-rose-950 border border-rose-500 text-rose-400 rounded-xl text-xs font-bold">
-          {errorMessage}
+        <div className="mb-4 p-3 bg-rose-950 border border-rose-500 text-rose-400 rounded-xl text-xs font-bold flex items-center gap-2">
+          <AlertCircle className="w-4 h-4" /> {errorMessage}
         </div>
       )}
 
-      {/* BARRA DE BÚSQUEDA DEL EMPLEADO (Ubicación superior ideal) */}
+      {/* BARRA DE BÚSQUEDA DEL EMPLEADO */}
       <div className="mb-6 relative w-full">
         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
           <Search className="w-5 h-5" />
@@ -156,29 +175,38 @@ function POSEmployee() {
           <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Productos en Stock</h2>
           {productosFiltrados.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {productosFiltrados.map((prod) => (
-                <div 
-                  key={prod.id} 
-                  onClick={() => agregarAFactura(prod)}
-                  className="bg-slate-800 border border-slate-700 p-3 rounded-xl shadow-xs flex items-center justify-between cursor-pointer hover:border-emerald-500 transition-all group active:scale-98"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-3xl bg-slate-700 w-12 h-12 flex items-center justify-center rounded-xl group-hover:bg-slate-600 transition-colors">
-                      {prod.imagen || '🚲'}
-                    </span>
-                    <div>
-                      <h4 className="font-bold text-sm text-white group-hover:text-emerald-400 transition-colors">{prod.nombre}</h4>
-                      <p className="text-slate-400 text-xs mt-0.5">Precio de salón</p>
+              {productosFiltrados.map((prod) => {
+                // CORRECCIÓN MULTI-IMAGEN: Extrae solo la primera miniatura antes del pipe '|'
+                const displayImg = prod.imagen && prod.imagen.includes('|') ? prod.imagen.split('|')[0] : prod.imagen;
+
+                return (
+                  <div 
+                    key={prod.id} 
+                    onClick={() => agregarAFactura(prod)}
+                    className="bg-slate-800 border border-slate-700 p-3 rounded-xl shadow-xs flex items-center justify-between cursor-pointer hover:border-emerald-500 transition-all group active:scale-98"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 flex items-center justify-center rounded-xl bg-slate-700 group-hover:bg-slate-600 transition-colors overflow-hidden">
+                        {displayImg && displayImg.startsWith('data:image') ? (
+                          <img src={displayImg} alt={prod.nombre} className="w-full h-full object-cover" />
+                        ) : (
+                          displayImg || '🚲'
+                        )}
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-white group-hover:text-emerald-400 transition-colors">{prod.nombre}</h4>
+                        <p className="text-slate-400 text-xs mt-0.5">Precio de salón</p>
+                      </div>
+                    </div>
+                    <div className="text-right flex items-center gap-3">
+                      <span className="text-emerald-400 text-sm font-black">${Number(prod.precio).toLocaleString('es-AR')}</span>
+                      <button className="p-1.5 bg-slate-700 rounded-lg group-hover:bg-emerald-600 group-hover:text-white text-slate-400 transition-colors">
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
-                  <div className="text-right flex items-center gap-3">
-                    <span className="text-emerald-400 text-sm font-black">${Number(prod.precio).toLocaleString('es-AR')}</span>
-                    <button className="p-1.5 bg-slate-700 rounded-lg group-hover:bg-emerald-600 group-hover:text-white text-slate-400 transition-colors">
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <p className="text-slate-500 text-sm italic py-4">No se encontraron productos que coincidan con la búsqueda.</p>
@@ -234,7 +262,7 @@ function POSEmployee() {
                 value={medioPago}
                 onChange={(e) => {
                   setMedioPago(e.target.value);
-                  if (e.target.value !== 'Efectivo') setPagaCompleto(''); // Limpia si no usa efectivo
+                  if (e.target.value !== 'Efectivo') setPagaCompleto(''); 
                 }}
                 className="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-xs font-semibold text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
               >
@@ -273,6 +301,7 @@ function POSEmployee() {
             </div>
 
             <button
+              type="submit"
               onClick={procesarFacturacionMostrador}
               disabled={listaFactura.length === 0 || loading || (medioPago === 'Efectivo' && pagaCon !== '' && Number(pagaCon) < totalFactura)}
               className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 disabled:hover:bg-emerald-600 text-white font-bold text-xs rounded-xl shadow-lg flex items-center justify-center gap-2 transition-colors cursor-pointer uppercase tracking-wider"
