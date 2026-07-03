@@ -136,29 +136,7 @@ app.post('/api/auth/login', (req, res) => {
         });
     });
 });
-// Ruta para registrar un nuevo turno en la tabla equipo
-app.post('/api/equipo', (req, res) => {
-  // Ahora extraemos los nombres EXACTOS de tus columnas de phpMyAdmin
-  const { bici_modelo, equipo_dato, descripcion } = req.body;
 
-  if (!bici_modelo || !equipo_dato || !descripcion) {
-    return res.status(400).json({ error: 'Todos los campos son obligatorios.' });
-  }
-
-  const query = 'INSERT INTO equipo (bici_modelo, equipo_dato, descripcion) VALUES (?, ?, ?)';
-
-  db.query(query, [bici_modelo, equipo_dato, descripcion], (err, result) => {
-    if (err) {
-      console.error('Error al insertar en la tabla equipo:', err);
-      return res.status(500).json({ error: 'Error del servidor al guardar el turno.' });
-    }
-    
-    res.status(201).json({ 
-      message: '¡Turno solicitado con éxito!', 
-      id: result.insertId 
-    });
-  });
-});
 
 // Ruta para obtener todos los turnos de la tabla equipo
 app.get('/api/equipo', (req, res) => {
@@ -381,7 +359,56 @@ app.delete('/api/productos/:id', verificarToken, (req, res) => {
   });
 });
 // ==========================================================
-// RUTA TALLER: TRAER HORAS OCUPADAS POR FECHA (CLIENTE/POS)
+// TALLER: CREAR NUEVA SOLICITUD PROTEGIDA (CLIENTE) - CORREGIDO
+// ==========================================================
+app.post('/api/equipo', verificarToken, (req, res) => { // <-- Se agregó el token aquí
+  const { bici_modelo, equipo_dato, descripcion } = req.body;
+
+  if (!bici_modelo || !equipo_dato || !descripcion) {
+    return res.status(400).json({ error: 'Todos los campos son obligatorios.' });
+  }
+
+  // Ahora sí se inyecta req.usuarioId de manera segura en la columna creacion
+  const query = `
+    INSERT INTO equipo (bici_modelo, equipo_dato, descripcion, estado, creacion) 
+    VALUES (?, ?, ?, 'Pendiente', ?)
+  `;
+
+  db.query(query, [bici_modelo, equipo_dato, descripcion, req.usuarioId], (err, result) => {
+    if (err) {
+      console.error('Error al insertar en la tabla equipo:', err);
+      return res.status(500).json({ error: 'Error del servidor al guardar el turno.' });
+    }
+    
+    res.status(201).json({ 
+      message: '¡Turno solicitado con éxito!', 
+      id: result.insertId 
+    });
+  });
+});
+
+// ==========================================================
+// TALLER: VER MIS SOLICITUDES (CLIENTE) - CON FECHA FORMATEADA
+// ==========================================================
+app.get('/api/equipo/mis-turnos', verificarToken, (req, res) => {
+  const query = `
+    SELECT id, bici_modelo, DATE_FORMAT(equipo_dato, '%Y-%m-%d %H:%i') AS equipo_dato, descripcion, estado, motivo_rechazo 
+    FROM equipo 
+    WHERE creacion = ? 
+    ORDER BY id DESC
+  `;
+
+  db.query(query, [req.usuarioId], (err, results) => {
+    if (err) {
+      console.error('Error al consultar turnos del cliente:', err);
+      return res.status(500).json({ error: 'Error al buscar tus solicitudes.' });
+    }
+    res.json(results);
+  });
+});
+
+// ==========================================================
+// TALLER: TRAER HORAS OCUPADAS POR FECHA (CLIENTE) - CON FECHA FORMATEADA
 // ==========================================================
 app.get('/api/equipo/ocupados', verificarToken, (req, res) => {
   const { date } = req.query; 
@@ -390,11 +417,13 @@ app.get('/api/equipo/ocupados', verificarToken, (req, res) => {
     return res.status(400).json({ error: 'Falta especificar la fecha de consulta.' });
   }
 
-  // Buscamos los turnos cuya fecha empiece con el día seleccionado y que NO hayan sido rechazados
+  // Formateamos equipo_dato en la consulta para asegurar el string correcto
+  // Trae los turnos ocupados, ignorando los Rechazados y los Cancelados para que se libere la hora
   const query = `
-    SELECT equipo_dato 
+    SELECT DATE_FORMAT(equipo_dato, '%Y-%m-%d %H:%i') AS equipo_dato
     FROM equipo 
-    WHERE equipo_dato LIKE ? AND estado != 'Rechazado'
+    WHERE equipo_dato LIKE ? 
+      AND (estado IS NULL OR (estado != 'Rechazado' AND estado != 'Cancelado'))
   `;
 
   db.query(query, [`${date}%`], (err, results) => {
@@ -403,13 +432,104 @@ app.get('/api/equipo/ocupados', verificarToken, (req, res) => {
       return res.status(500).json({ error: 'Error del servidor al consultar disponibilidad.' });
     }
 
-    // Extraemos solo las horas (ej: si guardaste '2026-06-30 10:30', guardamos '10:30')
     const takenHours = results.map(row => {
-      const parts = row.equipo_dato.split(' ');
-      return parts[1] || row.equipo_dato;
-    });
+      if (!row.equipo_dato) return '';
+      
+      const dataStr = String(row.equipo_dato); 
+      const parts = dataStr.split(' '); // Ahora sí va a encontrar el espacio en blanco
+      
+      return parts[1] ? parts[1].substring(0, 5) : dataStr.substring(0, 5);
+    }).filter(Boolean);
 
-    res.json(takenHours); // Devuelve un array tipo ['10:00', '11:30']
+    res.json(takenHours);
+  });
+});
+
+// ==========================================================
+// TALLER: OBTENER TODOS LOS TURNOS CON DATOS DEL CLIENTE (EMPLEADO) - CON FECHA FORMATEADA
+// ==========================================================
+app.get('/api/admin/equipo', verificarToken, (req, res) => {
+  const query = `
+    SELECT 
+      e.id, 
+      e.bici_modelo, 
+      DATE_FORMAT(e.equipo_dato, '%Y-%m-%d %H:%i') AS equipo_dato, 
+      e.descripcion, 
+      e.estado, 
+      e.motivo_rechazo,
+      u.nombre AS cliente_nombre,
+      u.telefono AS cliente_telefono
+    FROM equipo e
+    INNER JOIN usuarios u ON e.creacion = u.id
+    GROUP BY e.id
+    ORDER BY e.equipo_dato ASC
+  `;
+  
+  db.query(query, (err, results) => {
+    if (err) {
+      console.error('Error al consultar tabla equipo con join agrupado:', err);
+      return res.status(500).json({ error: 'Error del servidor al consultar los turnos.' });
+    }
+    res.json(results);
+  });
+});
+
+// ==========================================================
+// TALLER: ACTUALIZAR ESTADO / RECHAZAR CON MOTIVO (EMPLEADO)
+// ==========================================================
+app.put('/api/admin/equipo/:id', verificarToken, (req, res) => {
+  const { id } = req.params;
+  const { estado, motivo_rechazo } = req.body; 
+
+  const query = 'UPDATE equipo SET estado = ?, motivo_rechazo = ? WHERE id = ?';
+
+  db.query(query, [estado, motivo_rechazo || null, id], (err, result) => {
+    if (err) {
+      console.error('Error al actualizar estado del turno:', err);
+      return res.status(500).json({ error: 'Error del servidor al modificar el estado.' });
+    }
+    res.json({ message: estado === 'Rechazado' ? 'Turno rechazado con motivo registrado.' : `Turno actualizado a: ${estado}` });
+  });
+});
+// ==========================================================
+// TALLER: CANCELAR TURNO (CLIENTE)
+// ==========================================================
+app.put('/api/equipo/cancelar/:id', verificarToken, (req, res) => {
+  const { id } = req.params;
+
+  // Actualiza el estado a Cancelado siempre y cuando pertenezca al cliente logueado (creacion)
+  const query = 'UPDATE equipo SET estado = "Cancelado" WHERE id = ? AND creacion = ?';
+
+  db.query(query, [id, req.usuarioId], (err, result) => {
+    if (err) {
+      console.error('Error al cancelar el turno:', err);
+      return res.status(500).json({ error: 'Error del servidor al procesar la cancelación.' });
+    }
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Turno no encontrado o no autorizado.' });
+    }
+
+    res.json({ message: 'El turno ha sido cancelado con éxito.' });
+  });
+});
+
+// ==========================================================
+// TALLER: ELIMINAR SOLICITUD COMPLETADA/VIEJA (EMPLEADO)
+// ==========================================================
+app.delete('/api/admin/equipo/:id', verificarToken, (req, res) => {
+  const { id } = req.params;
+
+  // Eliminación física definitiva de la tabla equipo
+  const query = 'DELETE FROM equipo WHERE id = ?';
+
+  db.query(query, [id], (err, result) => {
+    if (err) {
+      console.error('Error al eliminar turno en el administrador:', err);
+      return res.status(500).json({ error: 'Error del servidor al eliminar la solicitud.' });
+    }
+
+    res.json({ message: 'Solicitud eliminada correctamente del registro histórico.' });
   });
 });
 
