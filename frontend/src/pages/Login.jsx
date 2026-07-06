@@ -41,7 +41,7 @@ function Login({ setAutenticado }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-100 font-sans p-4">
+    <div className="w-full min-h-screen flex items-center justify-center bg-slate-100 font-sans p-4 absolute inset-0 z-50">
       <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-slate-200">
         <div className="flex justify-center mb-4">
           <img src="/LogosMetolaBikes.svg" alt="Metola Bikes Logo" className="h-16 w-auto object-contain" />

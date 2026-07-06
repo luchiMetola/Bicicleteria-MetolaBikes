@@ -5,6 +5,7 @@ import axios from 'axios';
 // Imports desde la nueva carpeta components
 import Sidebar from './components/Sidebar';
 import POSSidebar from './components/POSSidebar';
+import PageLayout from './components/PageLayout'; 
 
 // Imports desde la nueva carpeta pages
 import Home from './pages/Home';
@@ -22,6 +23,9 @@ function App() {
   const [autenticado, setAutenticado] = useState(!!localStorage.getItem('token'));
   const [nombreUsuario, setNombreUsuario] = useState('');
   const [userRol, setUserRol] = useState('cliente'); // Control dinámico de accesos para el TIF
+  
+  // Estado global para controlar si el sidebar está abierto o cerrado
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const [cartItems, setCartItems] = useState(() => {
     const localCart = localStorage.getItem('metola_cart');
@@ -52,14 +56,19 @@ function App() {
 
   const updateQuantity = (id, color, delta) => {
     setCartItems((prevItems) => {
-      const nuevoCarrito = prevItems.map((item) => {
+      return prevItems.map((item) => {
         if (item.id === id && item.colorElegido === color) {
           const nuevaCantidad = item.cantidad + delta;
-          return nuevaCantidad >= 1 ? { ...item, cantidad: nuevaCantidad } : item;
+          
+          //Si el producto es viejo y no tiene stock guardado, asume un tope alto para no trabarse.
+          const stockMaximo = item.stock !== undefined ? item.stock : 99; 
+          
+          if (nuevaCantidad >= 1 && nuevaCantidad <= stockMaximo) {
+            return { ...item, cantidad: nuevaCantidad }; // Clona y actualiza, forzando re-render
+          }
         }
-        return item;
+        return item; // Retorna intacto si intenta pasarse del stock
       });
-      return [...nuevoCarrito];
     });
   };
 
@@ -95,34 +104,111 @@ function App() {
   }, [autenticado]);
 
   return (
-  <Routes>
-    {/* LA RUTA RAÍZ DINÁMICA: Si es empleado, ve la terminal de cobros en la pantalla principal. Si es cliente, ve el Inicio público */}
-    <Route 
-      path="/" 
-      element={
-        autenticado ? (
-          userRol === 'empleado' ? (
-            <><POSSidebar /><POSEmployee /></>
-          ) : (
-            <><Sidebar /><Home userName={nombreUsuario} /></>
-          )
+    <div className="flex w-full min-h-screen bg-slate-50">
+      {/* RENDERIZADO DEL SIDEBAR CONDICIONAL Y GLOBAL */}
+      {/* Solo mostramos el sidebar si el usuario está autenticado */}
+      {autenticado && (
+        userRol === 'empleado' ? (
+          <POSSidebar isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} />
         ) : (
-          <Navigate to="/login" />
+          <Sidebar isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} />
         )
-      } 
-    />
+      )}
 
-    {/* Resto de rutas protegidas y adaptadas */}
-    <Route path="/products" element={autenticado ? <>{userRol === 'empleado' ? <POSSidebar /> : <Sidebar />}{userRol === 'empleado' ? <POSInventory /> : <Products userName={nombreUsuario} addToCart={addToCart} globalCP={globalCP} setGlobalCP={setGlobalCP} />}</> : <Navigate to="/login" />} />
-    <Route path="/cart" element={autenticado ? <>{userRol === 'empleado' ? <POSSidebar /> : <Sidebar />}\<Cart userName={nombreUsuario} cartItems={cartItems} setCartItems={setCartItems} updateQuantity={updateQuantity} removeFromCart={removeFromCart} globalCP={globalCP} setGlobalCP={setGlobalCP} clearCart={clearCart} />\</> : <Navigate to="/login" />} />
-    <Route path="/workshop" element={autenticado ? <>{userRol === 'empleado' ? <POSSidebar /> : <Sidebar />}{userRol === 'empleado' ? <POSWorkshop /> : <Workshop />}</> : <Navigate to="/login" />} />
-    <Route path="/profile" element={autenticado ? <>{userRol === 'empleado' ? <POSSidebar /> : <Sidebar />}\<Profile />\</> : <Navigate to="/login" />} />
+      {/* RUTAS Y CONTENIDO DE LA PÁGINA */}
+      <Routes>
+        {/* Rutas Públicas (Sin Layout ni Sidebar) */}
+        <Route path="/login" element={<Login setAutenticado={setAutenticado} />} />
+        <Route path="/register" element={<Register />} />
 
-    <Route path="/login" element={<Login setAutenticado={setAutenticado} />} />
-    <Route path="/register" element={<Register />} />
-    <Route path="*" element={<Navigate to="/" />} />
-  </Routes>
-);
+        {/* RUTA RAÍZ */}
+        <Route 
+          path="/" 
+          element={
+            autenticado ? (
+              <PageLayout isSidebarOpen={isSidebarOpen}>
+                {userRol === 'empleado' ? <POSEmployee /> : <Home userName={nombreUsuario} />}
+              </PageLayout>
+            ) : (
+              <Navigate to="/login" />
+            )
+          } 
+        />
+
+        {/* RUTA PRODUCTOS / INVENTARIO */}
+        <Route 
+          path="/products" 
+          element={
+            autenticado ? (
+              <PageLayout isSidebarOpen={isSidebarOpen}>
+                {userRol === 'empleado' ? (
+                  <POSInventory />
+                ) : (
+                  <Products userName={nombreUsuario} addToCart={addToCart} globalCP={globalCP} setGlobalCP={setGlobalCP} />
+                )}
+              </PageLayout>
+            ) : (
+              <Navigate to="/login" />
+            )
+          } 
+        />
+
+        {/* RUTA CARRITO */}
+        <Route 
+          path="/cart" 
+          element={
+            autenticado ? (
+              <PageLayout isSidebarOpen={isSidebarOpen}>
+                <Cart 
+                  userName={nombreUsuario} 
+                  cartItems={cartItems} 
+                  setCartItems={setCartItems} 
+                  updateQuantity={updateQuantity} 
+                  removeFromCart={removeFromCart} 
+                  globalCP={globalCP} 
+                  setGlobalCP={setGlobalCP} 
+                  clearCart={clearCart} 
+                />
+              </PageLayout>
+            ) : (
+              <Navigate to="/login" />
+            )
+          } 
+        />
+
+        {/* RUTA TALLER */}
+        <Route 
+          path="/workshop" 
+          element={
+            autenticado ? (
+              <PageLayout isSidebarOpen={isSidebarOpen}>
+                {userRol === 'empleado' ? <POSWorkshop /> : <Workshop />}
+              </PageLayout>
+            ) : (
+              <Navigate to="/login" />
+            )
+          } 
+        />
+
+        {/* RUTA PERFIL */}
+        <Route 
+          path="/profile" 
+          element={
+            autenticado ? (
+              <PageLayout isSidebarOpen={isSidebarOpen}>
+                <Profile />
+              </PageLayout>
+            ) : (
+              <Navigate to="/login" />
+            )
+          } 
+        />
+
+        {/* RUTA POR DEFECTO (404) */}
+        <Route path="*" element={<Navigate to="/" />} />
+      </Routes>
+    </div>
+  );
 }
 
 export default App;

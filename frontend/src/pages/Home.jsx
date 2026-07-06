@@ -31,7 +31,7 @@ function Home({ userName, addToCart }) {
   });
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans p-4 md:p-8 pl-24 md:pl-72 w-full transition-all">
+    <div className="min-h-screen bg-slate-50 font-sans p-4 md:p-8 w-full transition-all">
       {/* Inyectamos la barra superior compartiendo el estado de búsqueda y tu cuenta */}
       <Header searchTerm={searchTerm} setSearchTerm={setSearchTerm} userName={userName} />
 

@@ -18,7 +18,7 @@ const db = mysql.createConnection({
     host: '127.0.0.1',
     user: 'root',      
     password: '',      
-    database: 'bicileteria_bd' 
+    database: 'bicicleteria_bd' 
 });
 
 // Probar la conexión
@@ -39,30 +39,32 @@ app.get('/', (req, res) => {
 });
 
 // ==========================================================
-// RUTA CATÁLOGO GENERAL: CALCULA EL STOCK ACUMULADO REAL EN TIEMPO REAL
+// RUTA CATÁLOGO GENERAL (CON DETALLE DE VARIANTES)
 // ==========================================================
 app.get('/productos', (req, res) => {
-  // Usamos un LEFT JOIN y SUM para acumular dinámicamente el stock real de las variantes
-  const query = `
-    SELECT 
-      p.id, 
-      p.nombre, 
-      p.descripcion, 
-      p.precio, 
-      p.imagen, 
-      p.id_categoria,
-      IFNULL(SUM(v.stock), 0) AS stock
+  // Buscamos los productos y su stock total
+  const queryProductos = `
+    SELECT p.*, IFNULL(SUM(v.stock), 0) AS stock
     FROM productos p
     LEFT JOIN producto_variantes v ON p.id = v.id_producto
     GROUP BY p.id
   `;
 
-  db.query(query, (err, results) => {
-    if (err) {
-      console.error('Error al consultar catálogo con stock acumulado real:', err);
-      return res.status(500).json({ error: 'Error del servidor al cargar los productos.' });
-    }
-    res.json(results);
+  db.query(queryProductos, (err, products) => {
+    if (err) return res.status(500).json({ error: 'Error obteniendo productos' });
+
+    // Buscamos TODAS las variantes de la base de datos
+    db.query('SELECT * FROM producto_variantes', (err, variants) => {
+      if (err) return res.status(500).json({ error: 'Error obteniendo variantes' });
+
+      // Le "pegamos" a cada producto su lista exacta de variantes (colores y talles con su stock)
+      const productsWithVariants = products.map(p => {
+        const pVariants = variants.filter(v => v.id_producto === p.id);
+        return { ...p, variantes: pVariants };
+      });
+
+      res.json(productsWithVariants);
+    });
   });
 });
 // ==========================================
@@ -455,25 +457,46 @@ app.post('/api/productos', verificarToken, (req, res) => {
   });
 });
 
-// ==========================================
-// RUTA INVENTARIO: EDITAR DATOS Y STOCK
-// ==========================================
-app.put('/api/productos/:id', verificarToken, (req, res) => {
+// ==========================================================
+// RUTA PARA EDITAR/ACTUALIZAR UN PRODUCTO Y SUS VARIANTES
+// ==========================================================
+app.put('/api/productos/:id', (req, res) => {
   const { id } = req.params;
-  const { nombre, descripcion, precio, stock, imagen, id_categoria } = req.body;
+  const { nombre, descripcion, precio, stock, imagen, id_categoria, variantes } = req.body;
 
-  const query = `
-    UPDATE productos 
-    SET nombre = ?, descripcion = ?, precio = ?, stock = ?, imagen = ?, id_categoria = ? 
-    WHERE id = ?
-  `;
-
-  db.query(query, [nombre, descripcion, precio, stock, imagen, id_categoria || 1, id], (err, result) => {
+  //Actualizamos la tabla principal (productos)
+  const queryUpdate = 'UPDATE productos SET nombre = ?, descripcion = ?, precio = ?, stock = ?, imagen = ?, id_categoria = ? WHERE id = ?';
+  
+  db.query(queryUpdate, [nombre, descripcion, precio, stock, imagen, id_categoria, id], (err, result) => {
     if (err) {
       console.error('Error actualizando producto:', err);
-      return res.status(500).json({ error: 'Error del servidor al actualizar el producto.' });
+      return res.status(500).json({ error: 'Error del servidor al actualizar producto.' });
     }
-    res.json({ message: '¡Producto modificado con éxito!' });
+
+    // Borramos las variantes anteriores de este producto para no duplicar datos
+    db.query('DELETE FROM producto_variantes WHERE id_producto = ?', [id], (errDel) => {
+      if (errDel) {
+        console.error('Error borrando variantes antiguas:', errDel);
+        return res.status(500).json({ error: 'Error al limpiar el inventario antiguo.' });
+      }
+
+      //  Insertamos las variantes nuevas con los valores corregidos
+      if (variantes && variantes.length > 0) {
+        // Mapeamos el arreglo asegurando usar "v.size" que es lo que manda React
+        const values = variantes.map(v => [id, v.color, v.size, v.stock]);
+        const queryInsertVar = 'INSERT INTO producto_variantes (id_producto, color, rodado_talla, stock) VALUES ?';
+
+        db.query(queryInsertVar, [values], (errIns) => {
+          if (errIns) {
+            console.error('Error insertando variantes nuevas:', errIns);
+            return res.status(500).json({ error: 'Error al guardar el nuevo stock físico.' });
+          }
+          res.json({ message: '¡Producto y variantes actualizados con éxito!' });
+        });
+      } else {
+        res.json({ message: '¡Producto actualizado con éxito!' });
+      }
+    });
   });
 });
 

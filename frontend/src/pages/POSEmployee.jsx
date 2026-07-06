@@ -132,11 +132,11 @@ function POSEmployee() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans p-4 md:p-8 pl-24 md:pl-72 w-full transition-all">
+    <div className="min-h-screen bg-slate-50 font-sans p-4 md:p-8 w-full transition-all">
       {/* Encabezado Principal */}
-      <header className="border-b border-slate-800 pb-4 mb-6">
-        <h1 className="text-2xl font-black tracking-tight text-white flex items-center gap-2">
-          <ShoppingBag className="w-6 h-6 text-emerald-400" /> Terminal Punto de Venta
+      <header className="border-b border-slate-200 pb-4 mb-6">
+        <h1 className="text-2xl font-black tracking-tight text-slate-800 flex items-center gap-2">
+          <ShoppingBag className="w-6 h-6 text-[#3A53A4]" /> Terminal Punto de Venta
         </h1>
         <p className="text-slate-400 text-xs mt-0.5">Módulo de Facturación Rápida en Mostrador - Salón Caucete</p>
       </header>

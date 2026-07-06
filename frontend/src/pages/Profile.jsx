@@ -82,10 +82,10 @@ function Profile() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans p-4 md:p-8 pl-24 md:pl-72 w-full transition-all">
+    <div className="min-h-screen bg-slate-50 font-sans p-4 md:p-8 w-full transition-all">
       <header className="border-b border-slate-200 pb-5 mb-8">
         <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-3">
-          <User className="w-8 h-8 text-blue-600" /> Mi Perfil
+          <User className="w-8 h-8 text-[#3A53A4]" /> Mi Perfil
         </h1>
         <p className="text-slate-500 mt-1 text-sm">Gestioná tus datos personales de envío y revisá tu actividad.</p>
       </header>

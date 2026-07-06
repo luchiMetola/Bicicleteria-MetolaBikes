@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import Header from '../components/Header';
-import { ShoppingCart, Trash2, CreditCard, Truck, X, CheckCircle } from 'lucide-react';
+import { ShoppingCart, Trash2, CreditCard, Truck, X, CheckCircle, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
 
 function Cart({ userName, cartItems, updateQuantity, removeFromCart, globalCP, setGlobalCP, clearCart }) {
-  // Sube el subtotal y total general
   const subtotal = cartItems.reduce((acc, item) => acc + (item.precio * item.cantidad), 0);
 
   let costoEnvio = 0;
@@ -25,7 +24,6 @@ function Cart({ userName, cartItems, updateQuantity, removeFromCart, globalCP, s
 
   const totalGeneral = subtotal + costoEnvio;
 
-  // Estados para controlar el Checkout / Modal de Pago
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [medioPago, setMedioPago] = useState('Tarjeta');
   const [metodoEntrega, setMetodoEntrega] = useState('Envío a domicilio');
@@ -34,7 +32,10 @@ function Cart({ userName, cartItems, updateQuantity, removeFromCart, globalCP, s
   const [mensajeExito, setMensajeExito] = useState('');
   const [errorCheckout, setErrorCheckout] = useState('');
 
-  // Efecto para traer de forma automática la dirección real del cliente si elige Envío a Domicilio
+  // Estados para el Modal de Info del Carrito
+  const [activeProductView, setActiveProductView] = useState(null);
+  const [activeImageIdx, setActiveImageIdx] = useState(0);
+
   useEffect(() => {
     if (isCheckoutOpen) {
       const obtenerDireccionPerfil = async () => {
@@ -54,7 +55,6 @@ function Cart({ userName, cartItems, updateQuantity, removeFromCart, globalCP, s
     }
   }, [isCheckoutOpen]);
 
-  // Función para procesar el pago real contra Node + MySQL
   const gestionarPagoFinal = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -68,7 +68,6 @@ function Cart({ userName, cartItems, updateQuantity, removeFromCart, globalCP, s
         return;
       }
 
-      // 1. Mapeamos de forma idéntica las propiedades con lo que lee tu backend/index.js
       const productosEstructurados = cartItems.map(item => ({
         id_producto: item.id,
         color: item.colorElegido || 'Único', 
@@ -77,7 +76,6 @@ function Cart({ userName, cartItems, updateQuantity, removeFromCart, globalCP, s
         precio: item.precio
       }));
 
-      // 2. Armamos el payload unificado usando las variables correctas
       const payload = {
         total: totalGeneral,
         tipo_venta: 'Web',
@@ -87,19 +85,17 @@ function Cart({ userName, cartItems, updateQuantity, removeFromCart, globalCP, s
         productosComprados: productosEstructurados 
       };
 
-      // 3. Hacemos una única petición POST limpia (YA SIN EL COPIADO SUELTO ANTERIOR)
       const response = await axios.post('http://localhost:5000/api/ventas/pagar', payload, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
       setMensajeExito(response.data.message);
       
-      // Esperamos 3 segundos mostrando el cartel de éxito, cerramos el modal y limpiamos el carrito
       setTimeout(() => {
         setIsCheckoutOpen(false);
         setMensajeExito('');
         if (typeof clearCart === 'function') {
-          clearCart(); // Resetea el estado global en App.jsx
+          clearCart();
         }
       }, 3000);
 
@@ -111,8 +107,27 @@ function Cart({ userName, cartItems, updateQuantity, removeFromCart, globalCP, s
     }
   };
 
+  // Función para procesar y mostrar info del producto guardado
+  const parseAttributes = (rawText) => {
+    const attributes = { model: '', details: '' };
+    if (!rawText) return attributes;
+    const parts = rawText.split('|');
+    parts.forEach(part => {
+      if (part.includes('Modelo:')) attributes.model = part.replace('Modelo:', '').trim();
+      if (part.includes('Detalles:')) attributes.details = part.replace('Detalles:', '').trim();
+    });
+    return attributes;
+  };
+
+  const handleViewInfo = (item) => {
+    const attrs = parseAttributes(item.descripcion);
+    let listImgs = item.imagen && item.imagen.includes('|') ? item.imagen.split('|') : [item.imagen || '🚲'];
+    setActiveImageIdx(0);
+    setActiveProductView({ prod: item, attrs, images: listImgs });
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 font-sans p-4 md:p-8 pl-24 md:pl-72 w-full transition-all">
+    <div className="min-h-screen bg-slate-50 font-sans p-4 md:p-8 w-full transition-all relative">
       <Header searchTerm="" setSearchTerm={() => {}} userName={userName} />
 
       <header className="pb-5 mb-6">
@@ -134,16 +149,22 @@ function Cart({ userName, cartItems, updateQuantity, removeFromCart, globalCP, s
 
               return (
                 <div key={`${item.id}-${item.colorElegido}`} className="bg-white border border-slate-200 p-4 rounded-2xl shadow-xs flex items-center justify-between gap-4 flex-wrap sm:flex-nowrap">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 flex items-center justify-center text-4xl overflow-hidden">
+                  
+                  {/* Contenedor interactivo para Ver Detalles */}
+                  <div 
+                    onClick={() => handleViewInfo(item)}
+                    className="flex items-center gap-3 cursor-pointer group flex-1 min-w[200px]"
+                  >
+                    <div className="w-12 h-12 flex items-center justify-center text-4xl overflow-hidden relative">
                       {displayImg && displayImg.startsWith('data:image') ? (
-                        <img src={displayImg} alt={item.nombre} className="w-full h-full object-cover rounded-lg border border-slate-200" />
+                        <img src={displayImg} alt={item.nombre} className="w-full h-full object-cover rounded-lg border border-slate-200 group-hover:opacity-60 transition-opacity" />
                       ) : (
-                        displayImg || '🚲'
+                        <span className="group-hover:opacity-60 transition-opacity">{displayImg || '🚲'}</span>
                       )}
+                      <Eye className="absolute inset-auto w-5 h-5 text-slate-800 opacity-0 group-hover:opacity-100 transition-opacity" />
                     </div>
                     <div>
-                      <h3 className="text-slate-800 font-bold text-sm md:text-base">{item.nombre}</h3>
+                      <h3 className="text-slate-800 font-bold text-sm md:text-base group-hover:text-blue-600 transition-colors">{item.nombre}</h3>
                       <p className="text-xs bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded border border-slate-200 mt-1 w-fit">
                         Color: {item.colorElegido} | Rodado: {item.rodado}
                       </p>
@@ -163,7 +184,7 @@ function Cart({ userName, cartItems, updateQuantity, removeFromCart, globalCP, s
                       <button 
                         type="button"
                         onClick={() => updateQuantity(item.id, item.colorElegido, 1)}
-                        disabled={item.cantidad >= item.stock} // Bloquea si iguala o supera las unidades que cargó el empleado
+                        disabled={item.stock !== undefined && item.cantidad >= item.stock} 
                         className="w-7 h-7 bg-white rounded-lg text-slate-700 font-black text-sm flex items-center justify-center hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                       >
                         +
@@ -233,9 +254,99 @@ function Cart({ userName, cartItems, updateQuantity, removeFromCart, globalCP, s
         </div>
       )}
 
+      {/* MODAL DETALLES DEL PRODUCTO EN CARRITO */}
+      {activeProductView && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl border border-slate-200 max-w-2xl w-full p-6 shadow-2xl relative grid grid-cols-1 md:grid-cols-2 gap-6 animate-in zoom-in-95 duration-200">
+            <button 
+              onClick={() => setActiveProductView(null)}
+              className="absolute top-4 right-4 bg-slate-100 hover:bg-rose-50 text-slate-400 hover:text-rose-600 p-1.5 rounded-xl border border-slate-200 transition-colors cursor-pointer z-10"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* CARRUSEL DE FOTOS */}
+            <div className="flex flex-col gap-3">
+              <div className="bg-slate-50 border border-slate-200 h-56 rounded-2xl flex items-center justify-center text-7xl relative overflow-hidden p-4">
+                {activeProductView.images[activeImageIdx] && activeProductView.images[activeImageIdx].startsWith('data:image') ? (
+                  <img src={activeProductView.images[activeImageIdx]} alt="Visor" className="w-full h-full object-contain" />
+                ) : (
+                  activeProductView.images[0] || '🚲'
+                )}
+
+                {activeProductView.images.length > 1 && (
+                  <>
+                    <button 
+                      type="button"
+                      onClick={() => setActiveImageIdx(prev => (prev === 0 ? activeProductView.images.length - 1 : prev - 1))}
+                      className="absolute left-2 bg-white/80 p-1 rounded-lg border border-slate-200 text-slate-700 shadow-2xs cursor-pointer"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => setActiveImageIdx(prev => (prev === activeProductView.images.length - 1 ? 0 : prev + 1))}
+                      className="absolute right-2 bg-white/80 p-1 rounded-lg border border-slate-200 text-slate-700 shadow-2xs cursor-pointer"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {activeProductView.images.length > 1 && (
+                <div className="flex gap-1.5 overflow-x-auto pb-1">
+                  {activeProductView.images.map((imgStr, idx) => (
+                    <div 
+                      key={idx} onClick={() => setActiveImageIdx(idx)}
+                      className={`w-12 h-12 bg-slate-50 border rounded-xl overflow-hidden cursor-pointer flex items-center justify-center p-1 shadow-2xs transition-all ${
+                        activeImageIdx === idx ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200'
+                      }`}
+                    >
+                      <img src={imgStr} alt="Mini" className="w-full h-full object-contain" />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* INFO RESUMIDA */}
+            <div className="flex flex-col space-y-4">
+              <div className="space-y-2">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">Info del Producto</span>
+                  <h2 className="text-lg md:text-xl font-black text-slate-800 tracking-tight mt-1.5 leading-tight">{activeProductView.prod.nombre}</h2>
+                  <p className="text-slate-400 font-semibold text-[11px] mt-0.5">Modelo/Línea: {activeProductView.attrs.model || 'Insumo Original'}</p>
+                </div>
+
+                <div className="text-xl font-black text-slate-900 bg-slate-50 p-3 border border-slate-200 rounded-xl flex justify-between items-center">
+                  <span className="text-xs font-bold text-slate-500 uppercase">Precio Unitario:</span>
+                  <span>${Number(activeProductView.prod.precio).toLocaleString('es-AR')}</span>
+                </div>
+
+                <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl space-y-1">
+                  <p className="text-[11px] font-bold text-slate-500 uppercase">Configuración Reservada:</p>
+                  <p className="text-sm font-bold text-slate-800">Color: <span className="text-blue-600">{activeProductView.prod.colorElegido}</span></p>
+                  <p className="text-sm font-bold text-slate-800">Talle/Rodado: <span className="text-blue-600">{activeProductView.prod.rodado}</span></p>
+                </div>
+
+                <div className="pt-2">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block mb-0.5">Especificaciones:</span>
+                  <p className="text-slate-500 font-medium text-xs bg-slate-50 p-2.5 border border-slate-200 rounded-xl leading-relaxed max-h-24 overflow-y-auto">
+                    {activeProductView.attrs.details || 'Componentes de alta gama homologados para ciclismo.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
       {/* MODAL DE PROCESAR PAGO */}
       {isCheckoutOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
+          {/* ... [El Modal de Pago se mantiene exactamente igual] ... */}
           <div className="bg-white rounded-3xl border border-slate-200 max-w-md w-full p-6 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150">
             <button 
               onClick={() => setIsCheckoutOpen(false)}

@@ -1,9 +1,9 @@
-import { useState } from 'react';
+
 import { Link, useLocation } from 'react-router-dom';
 import { Home, Package, Wrench, User, LogOut, ChevronLeft, ChevronRight } from 'lucide-react';
 
-function POSSidebar() {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+function POSSidebar({isSidebarOpen, setIsSidebarOpen}) {
+
   const location = useLocation();
 
   const handleLogout = () => {
@@ -20,41 +20,43 @@ function POSSidebar() {
   };
 
   return (
-    <aside className={`fixed top-0 left-0 h-full bg-slate-900 text-white p-4 shadow-xl transition-all duration-300 z-40 flex flex-col justify-between
-      ${isCollapsed ? 'w-20' : 'w-64'}`}
+    <aside className={`fixed top-0 left-0 h-full bg-slate-950 text-white p-4 shadow-xl transition-all duration-300 z-40 flex flex-col justify-between
+      ${isSidebarOpen ? 'w-64' : 'w-20'}`}
     >
       <div className="space-y-8">
         <div className="flex items-center justify-between border-b border-slate-800 pb-4 mt-2">
-          {!isCollapsed && <h2 className="text-lg font-black tracking-tight text-emerald-400 pl-2">Metola Bikes</h2>}
-          <button 
-            onClick={() => setIsCollapsed(!isCollapsed)}
-            className="p-1.5 hover:bg-slate-800 rounded-lg cursor-pointer text-slate-400 hover:text-white mx-auto"
-          >
-            {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
-          </button>
-        </div>
+          {isSidebarOpen && <h2 className="text-lg font-black tracking-tight text-[#3A53A4] pl-2">Metola Bikes</h2>}
+          
 
-        <nav className="flex flex-col gap-1.5 w-full">
+      <button 
+        onClick={() => setIsSidebarOpen(!isSidebarOpen)} 
+        className="p-1.5 hover:bg-slate-800 rounded-lg cursor-pointer text-slate-400 hover:text-white mx-auto"
+      >
+        {isSidebarOpen ? <ChevronLeft className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+      </button>
+      </div>
+
+        <nav className="flex flex-col gap-1.5 w-full" >
           {/* Su Home es directamente la Terminal POS de ventas */}
           <Link to="/" className={linkClase('/')}>
             <Home className="w-5 h-5 shrink-0" />
-            {!isCollapsed && <span>Caja Mostrador</span>}
+            {isSidebarOpen && <span>Caja Mostrador</span>}
           </Link>
 
           {/* Gestión de Inventario para Agregar/Modificar */}
           <Link to="/products" className={linkClase('/products')}>
             <Package className="w-5 h-5 shrink-0" />
-            {!isCollapsed && <span>Inventario Stock</span>}
+            {isSidebarOpen && <span>Inventario Stock</span>}
           </Link>
 
           <Link to="/workshop" className={linkClase('/workshop')}>
             <Wrench className="w-5 h-5 shrink-0" />
-            {!isCollapsed && <span>Taller & Mecánica</span>}
+            {isSidebarOpen && <span>Taller & Mecánica</span>}
           </Link>
 
           <Link to="/profile" className={linkClase('/profile')}>
             <User className="w-5 h-5 shrink-0" />
-            {!isCollapsed && <span>Perfil</span>}
+            {isSidebarOpen && <span>Perfil</span>}
           </Link>
         </nav>
       </div>
@@ -63,10 +65,10 @@ function POSSidebar() {
         <button 
           onClick={handleLogout}
           className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs md:text-sm font-semibold text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 transition-all w-full text-left cursor-pointer
-            ${isCollapsed ? 'justify-center' : 'justify-start'}`}
+            ${isSidebarOpen ? 'justify-center' : 'justify-start'}`}
         >
           <LogOut className="w-5 h-5 flex shrink-0" />
-          {!isCollapsed && <span>Cerrar Sesión</span>}
+          {isSidebarOpen && <span>Cerrar Sesión</span>}
         </button>
       </div>
     </aside>

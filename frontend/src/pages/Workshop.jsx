@@ -132,7 +132,7 @@ function Workshop({ userName }) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans p-4 md:p-8 pl-24 md:pl-72 w-full transition-all">
+    <div className="min-h-screen bg-slate-50 font-sans p-4 md:p-8 w-full transition-all">
       <Header searchTerm="" setSearchTerm={() => {}} userName={userName} />
 
       <header className="border-b border-slate-200 pb-4 mb-6">

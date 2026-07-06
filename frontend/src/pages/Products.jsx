@@ -6,7 +6,7 @@ import { ShoppingCart, CheckCircle, AlertCircle, Eye, X, ChevronLeft, ChevronRig
 function Products({ userName, addToCart }) {
   const [products, setProducts] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('All'); // Filter by category
+  const [selectedCategory, setSelectedCategory] = useState('All');
   const [notification, setNotification] = useState('');
 
   // Estados para controlar el visor interactivo del Modal de Detalles
@@ -27,7 +27,6 @@ function Products({ userName, addToCart }) {
     loadCatalogData();
   }, []);
 
-  // Helper function para procesar la descripción técnica estructurada con pipes '|'
   const parseAttributes = (rawText) => {
     const attributes = { model: '', sizes: [], colors: [], details: '' };
     if (!rawText) return attributes;
@@ -48,15 +47,15 @@ function Products({ userName, addToCart }) {
     return attributes;
   };
 
-  const handleTriggerAddToCart = (prod, color, size, imgBase64) => {
-    // Genera el objeto estructurado inyectando el stock disponible del producto
+  // Recibe el "stockVarianteExacto" calculado para limitar el carrito
+  const handleTriggerAddToCart = (prod, color, size, imgBase64, stockVarianteExacto) => {
     const productWithVariants = {
       ...prod,
       nombre: prod.nombre,
       colorElegido: color,
       rodado: size,
       imagen: imgBase64 || '🚲',
-      stock: prod.stock // Pasa el stock acumulado para que el carrito lo valide
+      stock: stockVarianteExacto // <-- Pasa el tope matemático exacto al carrito
     };
 
     addToCart(productWithVariants, color);
@@ -64,15 +63,20 @@ function Products({ userName, addToCart }) {
     setTimeout(() => setNotification(''), 3000);
   };
 
-  // Filtrado lógico por barra de búsqueda y barra de categorías
   const filteredProducts = products.filter((prod) => {
     const matchesSearch = prod.nombre.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = selectedCategory === 'All' || Number(prod.id_categoria) === Number(selectedCategory);
     return matchesSearch && matchesCategory;
   });
 
+  // Lógica matemática para buscar el stock de la variante que el usuario está tocando
+  const varianteSeleccionada = activeProductView?.prod.variantes?.find(
+    (v) => v.color === chosenColor && v.rodado_talla === chosenSize
+  );
+  const stockRealVariante = varianteSeleccionada ? varianteSeleccionada.stock : 0;
+
   return (
-    <div className="min-h-screen bg-slate-50 font-sans p-4 md:p-8 pl-24 md:pl-72 w-full transition-all">
+    <div className="min-h-screen bg-slate-50 font-sans p-4 md:p-8 w-full transition-all">
       <Header searchTerm={searchTerm} setSearchTerm={setSearchTerm} userName={userName} />
 
       <header className="border-b border-slate-200 pb-4 mb-6 flex justify-between items-center flex-wrap gap-4">
@@ -81,7 +85,6 @@ function Products({ userName, addToCart }) {
           <p className="text-slate-500 text-xs mt-0.5">Explorá los componentes y armá tu carrito con stock real sincronizado.</p>
         </div>
 
-        {/* BARRA INTERACTIVA DE CATEGORÍAS */}
         <div className="flex gap-1.5 bg-slate-200/60 p-1 rounded-2xl border border-slate-300/40 text-xs font-bold text-slate-600">
           <button onClick={() => setSelectedCategory('All')} className={`px-3 py-1.5 rounded-xl transition-all ${selectedCategory === 'All' ? 'bg-white text-slate-900 shadow-xs' : 'hover:bg-white/40'}`}>Todos</button>
           <button onClick={() => setSelectedCategory('1')} className={`px-3 py-1.5 rounded-xl transition-all ${selectedCategory === '1' ? 'bg-white text-blue-600 shadow-xs' : 'hover:bg-white/40'}`}>Bicicletas</button>
@@ -103,11 +106,9 @@ function Products({ userName, addToCart }) {
           <p className="text-slate-400 font-semibold text-sm">No hay artículos disponibles en esta sección.</p>
         </div>
       ) : (
-        /* VISTA DE GRILLA LIMPIA: 2 columnas exactas en celular, 3 o más en pantallas grandes */
         <div className="grid grid-cols-2 md:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6 w-full">
           {filteredProducts.map((prod) => {
             const attrs = parseAttributes(prod.descripcion);
-            // Separa las imágenes del pipe y renderiza únicamente la primera en la grilla del catálogo
             const displayImg = prod.imagen && prod.imagen.includes('|') ? prod.imagen.split('|')[0] : prod.imagen;
 
             return (
@@ -131,7 +132,7 @@ function Products({ userName, addToCart }) {
                     )}
                     {prod.stock <= 0 && (
                       <span className="absolute inset-0 bg-white/90 backdrop-blur-3xs flex items-center justify-center text-[10px] md:text-xs font-black uppercase text-rose-600 tracking-wider">
-                        Sin Stock
+                        Sin Stock General
                       </span>
                     )}
                     <div className="absolute top-2 right-2 bg-slate-900/40 opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-white backdrop-blur-3xs transition-all duration-100">
@@ -159,19 +160,19 @@ function Products({ userName, addToCart }) {
         </div>
       )}
 
-      {/* MODAL EXTENDIDO: FICHA DEL PRODUCTO DETALLADA */}
+      {/* MODAL EXTENDIDO */}
       {activeProductView && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl border border-slate-200 max-w-3xl w-full p-6 shadow-2xl relative grid grid-cols-1 md:grid-cols-2 gap-6 max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
             
             <button 
               onClick={() => setActiveProductView(null)}
-              className="absolute top-4 right-4 bg-slate-100 hover:bg-rose-50 text-slate-400 hover:text-rose-600 p-1.5 rounded-xl border border-slate-200 transition-colors cursor-pointer"
+              className="absolute top-4 right-4 bg-slate-100 hover:bg-rose-50 text-slate-400 hover:text-rose-600 p-1.5 rounded-xl border border-slate-200 transition-colors cursor-pointer z-10"
             >
               <X className="w-4 h-4" />
             </button>
 
-            {/* CARRUSEL VISOR LATERAL DE FOTOS */}
+            {/* CARRUSEL VISOR LATERAL */}
             <div className="flex flex-col gap-3">
               <div className="bg-slate-50 border border-slate-200 h-64 rounded-2xl flex items-center justify-center text-7xl relative overflow-hidden p-4">
                 {activeProductView.images[activeImageIdx] && activeProductView.images[activeImageIdx].startsWith('data:image') ? (
@@ -200,7 +201,6 @@ function Products({ userName, addToCart }) {
                 )}
               </div>
 
-              {/* Tira de Miniaturas secundarias */}
               {activeProductView.images.length > 1 && (
                 <div className="flex gap-1.5 overflow-x-auto pb-1">
                   {activeProductView.images.map((imgStr, idx) => (
@@ -218,7 +218,7 @@ function Products({ userName, addToCart }) {
               )}
             </div>
 
-            {/* SECCIÓN DERECHA: SELECCIÓN DE OPCIONES Y AGREGADO */}
+            {/* SECCIÓN DERECHA DE OPCIONES */}
             <div className="flex flex-col justify-between space-y-4">
               <div className="space-y-3">
                 <div>
@@ -232,42 +232,64 @@ function Products({ userName, addToCart }) {
                   <span>${Number(activeProductView.prod.precio).toLocaleString('es-AR')}</span>
                 </div>
 
-                {/* Filtro interactivo de talles */}
+                {/* Filtro interactivo de Talles */}
                 {activeProductView.attrs.sizes.length > 0 && (
                   <div className="space-y-1">
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Seleccionar Rodado / Talle:</label>
                     <div className="flex flex-wrap gap-1">
-                      {activeProductView.attrs.sizes.map((s) => (
-                        <button
-                          key={s} type="button"
-                          onClick={() => setChosenSize(s)}
-                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all ${
-                            chosenSize === s ? 'bg-slate-900 border-slate-900 text-white shadow-xs' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer'
-                          }`}
-                        >
-                          {s}
-                        </button>
-                      ))}
+                      {activeProductView.attrs.sizes.map((s) => {
+                        // Verificamos si este talle tiene stock en combinación con el color elegido
+                        const stockTalle = activeProductView.prod.variantes
+                          ?.filter(v => v.rodado_talla === s && v.color === chosenColor)
+                          .reduce((acc, curr) => acc + curr.stock, 0) || 0;
+                        
+                        const sinStock = stockTalle <= 0;
+
+                        return (
+                          <button
+                            key={s} type="button"
+                            disabled={sinStock}
+                            onClick={() => setChosenSize(s)}
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+                              sinStock ? 'opacity-40 line-through bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' :
+                              chosenSize === s ? 'bg-slate-900 border-slate-900 text-white shadow-xs' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer'
+                            }`}
+                          >
+                            {s}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
 
-                {/* Filtro interactivo de colores */}
+                {/* Filtro interactivo de Colores con Tachado Dinámico */}
                 {activeProductView.attrs.colors.length > 0 && (
                   <div className="space-y-1">
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Seleccionar Color:</label>
                     <div className="flex flex-wrap gap-1">
-                      {activeProductView.attrs.colors.map((c) => (
-                        <button
-                          key={c} type="button"
-                          onClick={() => setChosenColor(c)}
-                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all ${
-                            chosenColor === c ? 'bg-blue-600 border-blue-600 text-white shadow-xs' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer'
-                          }`}
-                        >
-                          {c}
-                        </button>
-                      ))}
+                      {activeProductView.attrs.colors.map((c) => {
+                        // Sumamos el stock de todas las variantes que tengan este color
+                        const stockColor = activeProductView.prod.variantes
+                          ?.filter(v => v.color === c)
+                          .reduce((acc, curr) => acc + curr.stock, 0) || 0;
+                        
+                        const sinStock = stockColor <= 0;
+
+                        return (
+                          <button
+                            key={c} type="button"
+                            disabled={sinStock}
+                            onClick={() => setChosenColor(c)}
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+                              sinStock ? 'opacity-40 line-through bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' :
+                              chosenColor === c ? 'bg-blue-600 border-blue-600 text-white shadow-xs' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer'
+                            }`}
+                          >
+                            {c}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -282,25 +304,26 @@ function Products({ userName, addToCart }) {
 
               <div className="pt-4 border-t border-slate-100 flex items-center justify-between gap-4">
                 <div className="flex flex-col">
-                  <span className="text-[9px] uppercase font-bold text-slate-400">Disponibilidad de Salón</span>
-                  <span className="text-xs font-bold text-slate-700">
-                    {activeProductView.prod.stock > 0 ? `📦 ${activeProductView.prod.stock} un. en stock` : '⚠️ Sin Stock'}
+                  <span className="text-[9px] uppercase font-bold text-slate-400">Disponibilidad Variante</span>
+                  <span className={`text-xs font-bold ${stockRealVariante > 0 ? 'text-slate-700' : 'text-rose-600'}`}>
+                    {stockRealVariante > 0 ? `📦 ${stockRealVariante} un. disponibles` : '⚠️ Combinación Sin Stock'}
                   </span>
                 </div>
 
                 <button
                   type="button"
-                  disabled={activeProductView.prod.stock <= 0}
+                  disabled={stockRealVariante <= 0}
                   onClick={() => {
                     handleTriggerAddToCart(
                       activeProductView.prod, 
                       chosenColor, 
                       chosenSize, 
-                      activeProductView.images[activeImageIdx]
+                      activeProductView.images[activeImageIdx],
+                      stockRealVariante // ENVIAMOS EL STOCK EXACTO AL CARRITO
                     );
-                    setActiveProductView(null); // Cierra automáticamente al añadir
+                    setActiveProductView(null);
                   }}
-                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-bold text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-colors uppercase tracking-wider cursor-pointer"
+                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-colors uppercase tracking-wider cursor-pointer"
                 >
                   <ShoppingCart className="w-4 h-4" /> Agregar al Carrito
                 </button>
