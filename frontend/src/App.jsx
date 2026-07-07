@@ -6,6 +6,7 @@ import axios from 'axios';
 import Sidebar from './components/Sidebar';
 import POSSidebar from './components/POSSidebar';
 import PageLayout from './components/PageLayout'; 
+import AdminSidebar from './components/AdminSidebar';
 
 // Imports desde la nueva carpeta pages
 import Home from './pages/Home';
@@ -18,6 +19,7 @@ import Register from './pages/Register';
 import POSEmployee from './pages/POSEmployee';
 import POSInventory from './pages/POSInventory';
 import POSWorkshop from './pages/POSWorkshop';
+import AdminDashboard from './pages/AdminDashboard';
 
 function App() {
   const [autenticado, setAutenticado] = useState(!!localStorage.getItem('token'));
@@ -105,10 +107,11 @@ function App() {
 
   return (
     <div className="flex w-full min-h-screen bg-slate-50">
-      {/* RENDERIZADO DEL SIDEBAR CONDICIONAL Y GLOBAL */}
-      {/* Solo mostramos el sidebar si el usuario está autenticado */}
+    {/* RENDERIZADO DEL SIDEBAR CONDICIONAL Y GLOBAL */}
       {autenticado && (
-        userRol === 'empleado' ? (
+        userRol === 'admin' ? (
+          <AdminSidebar isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} />
+        ) : userRol === 'empleado' ? (
           <POSSidebar isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} />
         ) : (
           <Sidebar isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} />
@@ -127,7 +130,13 @@ function App() {
           element={
             autenticado ? (
               <PageLayout isSidebarOpen={isSidebarOpen}>
-                {userRol === 'empleado' ? <POSEmployee /> : <Home userName={nombreUsuario} />}
+                {userRol === 'admin' ? (
+                  <AdminDashboard />
+                ) : userRol === 'empleado' ? (
+                  <POSEmployee />
+                ) : (
+                  <Home userName={nombreUsuario} />
+                )}
               </PageLayout>
             ) : (
               <Navigate to="/login" />
@@ -141,7 +150,7 @@ function App() {
           element={
             autenticado ? (
               <PageLayout isSidebarOpen={isSidebarOpen}>
-                {userRol === 'empleado' ? (
+                {(userRol === 'empleado' || userRol === 'admin') ? (
                   <POSInventory />
                 ) : (
                   <Products userName={nombreUsuario} addToCart={addToCart} globalCP={globalCP} setGlobalCP={setGlobalCP} />
@@ -182,7 +191,7 @@ function App() {
           element={
             autenticado ? (
               <PageLayout isSidebarOpen={isSidebarOpen}>
-                {userRol === 'empleado' ? <POSWorkshop /> : <Workshop />}
+                {(userRol === 'empleado' || userRol === 'admin') ? <POSWorkshop /> : <Workshop />}
               </PageLayout>
             ) : (
               <Navigate to="/login" />

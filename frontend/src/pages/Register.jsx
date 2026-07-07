@@ -15,14 +15,27 @@ function Register() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Función para validar la contraseña segura
+  const validarPasswordSegura = (pass) => {
+    // Regex: Mínimo 8 caracteres, al menos 1 letra mayúscula y al menos 1 número
+    const regex = /^(?=.*[A-Z])(?=.*\d).{8,}$/;
+    return regex.test(pass);
+  };
+
   const handleRegister = async (e) => {
     e.preventDefault();
     setMessage('');
     setError('');
     setLoading(true);
 
+    // VALIDACIÓN FRONTEND: Cortamos la ejecución antes de molestar al servidor si la clave es débil
+    if (!validarPasswordSegura(password)) {
+      setError('La contraseña debe tener al menos 8 caracteres, una letra mayúscula y un número.');
+      setLoading(false);
+      return;
+    }
+
     try {
-      // Enviamos el objeto con las propiedades exactas que espera Node
       await axios.post('http://localhost:5000/api/auth/register', {
         nombre: name,
         email,
@@ -32,16 +45,16 @@ function Register() {
         direccion: address
       });
 
-      setMessage('Account created successfully! Redirecting...');
+      setMessage('¡Cuenta creada con éxito! Redirigiendo...');
       setTimeout(() => {
         navigate('/login');
       }, 2000);
 
     } catch (err) {
       if (err.response && err.response.data) {
-        setError(err.response.data.error || 'Registration failed.');
+        setError(err.response.data.error || 'Fallo al registrar la cuenta.');
       } else {
-        setError('Could not connect to the server.');
+        setError('No se pudo conectar con el servidor.');
       }
     } finally {
       setLoading(false);
@@ -133,6 +146,10 @@ function Register() {
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
+            {/* Mensaje de ayuda visual para el usuario */}
+            <p className="text-[10px] text-slate-400 font-medium mt-1.5 ml-1">
+              Debe contener al menos 8 caracteres, 1 mayúscula y 1 número.
+            </p>
           </div>
 
           <button 
@@ -140,7 +157,7 @@ function Register() {
             className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 text-white font-bold rounded-lg shadow-md transition-colors cursor-pointer text-sm flex items-center justify-center gap-2 mt-2"
           >
             <UserPlus className="w-4 h-4" />
-            {loading ? 'Crear cuenta...' : 'Registrar'}
+            {loading ? 'Creando cuenta...' : 'Registrar'}
           </button>
         </form>
 

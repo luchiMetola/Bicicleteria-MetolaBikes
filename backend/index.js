@@ -68,10 +68,16 @@ app.get('/productos', (req, res) => {
   });
 });
 // ==========================================
-// --- NUEVA RUTA: DÍA 3 - REGISTRO ---
+// RUTA PARA REGISTRAR USUARIOS
 // ==========================================
 app.post('/api/auth/register', (req, res) => {
     const { nombre, email, contrasena, telefono, direccion, rol } = req.body;
+
+    //VALIDACIÓN BACKEND: Verificamos la seguridad de la contraseña
+    const passwordRegex = /^(?=.*[A-Z])(?=.*\d).{8,}$/;
+    if (!passwordRegex.test(contrasena)) {
+        return res.status(400).json({ error: 'La contraseña no cumple con los requisitos de seguridad mínimos (8 caracteres, 1 mayúscula, 1 número).' });
+    }
 
     if (!nombre || !email || !contrasena || !telefono || !direccion) {
         return res.status(400).json({ error: 'Todos los campos son obligatorios.' });
@@ -178,8 +184,9 @@ app.get('/api/equipo', (req, res) => {
   });
 });
 
-
+// ==========================================
 // 1. MEDIADOR DE SEGURIDAD (Middleware) para verificar el Token JWT
+// ==========================================
 const verificarToken = (req, res, next) => {
   const token = req.headers['authorization'];
 
@@ -187,7 +194,6 @@ const verificarToken = (req, res, next) => {
     return res.status(403).json({ error: 'No se proporcionó un token de acceso.' });
   }
 
-  // Quitamos la palabra "Bearer " si el frontend la envía
   const tokenLimpio = token.startsWith('Bearer ') ? token.slice(7) : token;
 
 jwt.verify(tokenLimpio, JWT_SECRET, (err, decoded) => { 
@@ -198,6 +204,44 @@ jwt.verify(tokenLimpio, JWT_SECRET, (err, decoded) => {
   next();
 });
 };
+// ==========================================
+// 1.5 MEDIADOR (Middleware) para verificar Rol de Administrador
+// ==========================================
+const verificarAdmin = (req, res, next) => {
+  const query = 'SELECT rol FROM usuarios WHERE id = ?';
+  db.query(query, [req.usuarioId], (err, results) => {
+    if (err || results.length === 0) {
+      return res.status(500).json({ error: 'Error verificando permisos.' });
+    }
+    
+    if (results[0].rol !== 'admin') {
+      return res.status(403).json({ error: 'Acceso Denegado: Se requieren privilegios de Administrador.' });
+    }
+    
+    next(); // Si es admin, lo deja pasar a la ruta
+  });
+};
+
+// ==========================================
+// RUTA EXCLUSIVA ADMIN: TRAER TODAS LAS VENTAS
+// ==========================================
+// Usamos dos middlewares: primero miramos el Token, y después miramos que sea Admin
+app.get('/api/admin/ventas', verificarToken, verificarAdmin, (req, res) => {
+  const query = `
+    SELECT v.id, DATE_FORMAT(v.fecha, '%d/%m/%Y %H:%i') AS fecha, v.total, v.tipo_venta, v.estado_envio, u.nombre AS cliente_nombre
+    FROM ventas v
+    LEFT JOIN usuarios u ON v.id_usuario = u.id
+    ORDER BY v.id DESC
+  `;
+
+  db.query(query, (err, results) => {
+    if (err) {
+      console.error('Error al consultar ventas globales:', err);
+      return res.status(500).json({ error: 'Error del servidor al buscar auditoría.' });
+    }
+    res.json(results);
+  });
+});
 // ==========================================
 // 2. RUTA DEL PERFIL: Trae los datos reales del usuario logueado usando su ID
 // ==========================================
@@ -367,31 +411,76 @@ app.post('/api/ventas/pagar', verificarToken, (req, res) => {
 // REGISTRAR LAS VENTAS PRESENCIAL (EMPLEADO - POS)
 // ==========================================
 app.post('/api/ventas/presencial', verificarToken, (req, res) => {
-  const { total, tipo_venta } = req.body;
+  // Ahora recibimos el array exacto de productos y el medio de pago
+  const { total, tipo_venta, medio_pago, productosComprados } = req.body;
 
-  if (!total || !tipo_venta) {
+  if (!total || !productosComprados || !Array.isArray(productosComprados)) {
     return res.status(400).json({ error: 'Faltan datos obligatorios para facturar.' });
   }
 
-  // Las ventas de mostrador se entregan en el acto, por lo que el estado es 'Entregado en salón'
+  // Las ventas de mostrador se entregan en el acto
   const estado_envio = 'Entregado en salón';
+  const resumenCortoVenta = `Mostrador - ${medio_pago || 'Efectivo'}`;
 
-  const query = `
+  const queryVenta = `
     INSERT INTO ventas (id_usuario, fecha, total, tipo_venta, estado_envio) 
     VALUES (?, NOW(), ?, ?, ?)
   `;
 
-  // req.usuarioId identifica al empleado que está realizando la facturación en la terminal
-  db.query(query, [req.usuarioId, total, `Mostrador: ${tipo_venta}`, estado_envio], (err, result) => {
+  // req.usuarioId identifica al empleado que está facturando (para la auditoría del Admin)
+  db.query(queryVenta, [req.usuarioId, total, resumenCortoVenta, estado_envio], (err, result) => {
     if (err) {
       console.error('Error al facturar en mostrador:', err);
       return res.status(500).json({ error: 'Error del servidor al registrar la venta presencial.' });
     }
 
-    res.status(201).json({ 
-      message: '¡Venta presencial facturada con éxito!', 
-      id_venta: result.insertId 
+    const idVentaGenerada = result.insertId;
+    let erroresOcurridos = false;
+    let queriesCompletadas = 0;
+    const totalQueriesAEjecutar = productosComprados.length * 2; // Insertar detalle + Restar stock
+
+    if (productosComprados.length === 0) {
+      return res.status(201).json({ message: 'Venta registrada vacía.', id_venta: idVentaGenerada });
+    }
+
+    // Recorremos el carrito del Mostrador
+    productosComprados.forEach((item) => {
+      const colorSeleccionado = item.color || 'Único';
+      const rodadoTallaSeleccionado = item.rodado_talla || 'Único';
+      const cantidadComprada = item.cantidad || 1;
+      const precioUnitario = item.precio || 0;
+
+      // 1. Insertamos en detalle_venta
+      const queryDetalle = `
+        INSERT INTO detalle_venta (id_venta, id_producto, color, rodado_talla, cantidad, precio_unitario)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+      db.query(queryDetalle, [idVentaGenerada, item.id_producto, colorSeleccionado, rodadoTallaSeleccionado, cantidadComprada, precioUnitario], (errDet) => {
+        if (errDet) erroresOcurridos = true;
+        verificarFinalizacion();
+      });
+
+      // 2. Descontamos el stock de la variante
+      const queryStock = `
+        UPDATE producto_variantes 
+        SET stock = stock - ? 
+        WHERE id_producto = ? AND color = ? AND rodado_talla = ?
+      `;
+      db.query(queryStock, [cantidadComprada, item.id_producto, colorSeleccionado, rodadoTallaSeleccionado], (errStock) => {
+        if (errStock) erroresOcurridos = true;
+        verificarFinalizacion();
+      });
     });
+
+    function verificarFinalizacion() {
+      queriesCompletadas++;
+      if (queriesCompletadas === totalQueriesAEjecutar) {
+        if (erroresOcurridos) {
+          return res.status(201).json({ message: 'Venta registrada con desajustes de stock.', id_venta: idVentaGenerada });
+        }
+        return res.status(201).json({ message: '¡Venta presencial facturada con éxito!', id_venta: idVentaGenerada });
+      }
+    }
   });
 });
 // ===================================================================================
