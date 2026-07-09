@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios'; 
 import Header from '../components/Header';
-import { Wrench, Calendar, Clock, CheckCircle, AlertCircle, ListFilter } from 'lucide-react';
+import { Wrench, Calendar, Clock, CheckCircle, AlertCircle, ListFilter, MapPin } from 'lucide-react';
 
 function Workshop({ userName }) {
   const [bikeModel, setBiciModelo] = useState('');
   const [description, setDescripcion] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedTime, setSelectedTime] = useState('');
+  const [codigoPostal, setCodigoPostal] = useState(''); // Nuevo estado para CP
   
   // States in English
   const [myAppointments, setMyAppointments] = useState([]);
@@ -18,7 +19,6 @@ function Workshop({ userName }) {
 
   const timeSlots = ['10:00', '10:30', '11:00', '11:30', '12:00'];
 
-  // Sincronización asíncrona segura envuelta para limpiar advertencias de cascada
   useEffect(() => {
     const loadInitialClientAppointments = async () => {
       try {
@@ -54,7 +54,7 @@ function Workshop({ userName }) {
         headers: { Authorization: `Bearer ${token}` }
       });
       setNotification({ text: '¡Turno cancelado correctamente!', type: 'success' });
-      fetchAppointmentsAfterAction(); // Recarga la grilla
+      fetchAppointmentsAfterAction(); 
     } catch (error) {
       console.error('Error al cancelar turno:', error);
       setNotification({ text: 'No se pudo cancelar el turno.', type: 'error' });
@@ -85,6 +85,13 @@ function Workshop({ userName }) {
 
   const handleRequestAppointment = async (e) => {
     e.preventDefault();
+    
+    // Validación exclusiva de Código Postal para San Juan
+    if (codigoPostal.trim() !== '5400') {
+      setNotification({ text: 'El servicio de taller solo está disponible para residentes de la localidad de San Juan.', type: 'error' });
+      return;
+    }
+
     if (!selectedDate || !selectedTime) {
       setNotification({ text: 'Por favor, completá la agenda completa (Día y Hora).', type: 'error' });
       return;
@@ -113,6 +120,7 @@ function Workshop({ userName }) {
       setDescripcion('');
       setSelectedDate('');
       setSelectedTime('');
+      setCodigoPostal('');
       setTakenTimes([]);
       fetchAppointmentsAfterAction(); 
     } catch (error) {
@@ -158,23 +166,28 @@ function Workshop({ userName }) {
           <h2 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-4 pb-2 border-b border-slate-100">Nueva Solicitud de Turno</h2>
           <form onSubmit={handleRequestAppointment} className="space-y-4 text-xs font-medium text-slate-600">
             <div>
-              <label className="block text-[11px] font-bold uppercase mb-1">Bicicleta / Componente:</label>
+              <label className="block text-[11px] font-bold uppercase mb-1 items-center gap-1">Bicicleta / Componente:</label>
               <input type="text" required value={bikeModel} onChange={(e) => setBiciModelo(e.target.value)} placeholder="Ej: Venzo Raptor Rodado 29" className="w-full p-2.5 border border-slate-300 rounded-xl text-slate-800" />
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold uppercase mb-1">Diagnóstico / Detalle del Service:</label>
+              <label className="block text-[11px] font-bold uppercase mb-1 items-center gap-1">Diagnóstico / Detalle del Service:</label>
               <textarea rows="2" required value={description} onChange={(e) => setDescripcion(e.target.value)} placeholder="Ej: Ajuste de cambios y centrado de llanta..." className="w-full p-2.5 border border-slate-300 rounded-xl text-slate-800 resize-none" />
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold uppercase mb-1 flex-items-center gap-1"><Calendar className="w-3.5 h-3.5 text-blue-600" /> 1. Día de recepción:</label>
+              <label className="block text-[11px] font-bold uppercase mb-1 items-center gap-1"><MapPin className="w-3.5 h-3.5 text-blue-600" /> Código Postal de Residencia:</label>
+              <input type="text" required value={codigoPostal} onChange={(e) => setCodigoPostal(e.target.value)} placeholder="Ej: 5400" className="w-full p-2.5 border border-slate-300 rounded-xl text-slate-800 font-semibold" />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase mb-1 items-center gap-1"><Calendar className="w-3.5 h-3.5 text-blue-600" /> 1. Día de recepción:</label>
               <input type="date" required min={getTodayDateString()} value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-full p-2.5 border border-slate-300 rounded-xl text-slate-800 font-semibold" />
             </div>
 
             {selectedDate && (
               <div className="space-y-2 animate-in fade-in duration-150">
-                <label className="block text-[11px] font-bold uppercase flex-items-center gap-1 text-slate-500"><Clock className="w-3.5 h-3.5 text-blue-600" /> 2. Horarios disponibles de mañana:</label>
+                <label className="block text-[11px] font-bold uppercase items-center gap-1 text-slate-500"><Clock className="w-3.5 h-3.5 text-blue-600" /> 2. Horarios disponibles de mañana:</label>
                 {loadingTimes ? (
                   <p className="text-blue-500 font-semibold italic animate-pulse">Consultando disponibilidad...</p>
                 ) : (
@@ -244,7 +257,6 @@ function Workshop({ userName }) {
                       </div>
                     )}
 
-                    {/* BOTÓN DE CANCELACIÓN UBICADO EN UN LUGAR SEGURO */}
                     {(app.estado === 'Pendiente' || app.estado === 'Aceptado' || !app.estado) && (
                       <div className="pt-2">
                         <button 

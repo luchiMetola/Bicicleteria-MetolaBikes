@@ -196,10 +196,6 @@ function POSEmployee() {
             
             {/* HEADER DEL PANEL: Agregar Ítem & Buscador */}
             <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
-              <button className="text-blue-800 font-bold text-sm flex items-center gap-1 hover:text-blue-500 transition-colors uppercase tracking-wide shrink-0 cursor-pointer">
-                <Plus className="w-4 h-4" /> Agregar Producto
-              </button>
-
               <div className="flex items-center w-full max-w-sm bg-slate-50 border border-slate-200 rounded-full overflow-hidden focus-within:ring-2 focus-within:ring-emerald-500/30 transition-all">
                 <input
                   type="text"
@@ -241,7 +237,7 @@ function POSEmployee() {
                     <div key={prod.id} className="flex flex-col items-center p-4 border border-slate-100 rounded-lg hover:shadow-md hover:border-emerald-100 transition-all bg-white h-fit">
                       
                       <div className="w-full h-28 flex items-center justify-center mb-3 overflow-hidden">
-                        {displayImg && displayImg.startsWith('data:image') ? (
+                        {displayImg && (displayImg.startsWith('data:image') || displayImg.startsWith('http')) ? (
                           <img src={displayImg} alt={prod.nombre} className="max-w-full max-h-full object-contain drop-shadow-sm" />
                         ) : (
                           <span className="text-4xl text-slate-300">{displayImg || '🚲'}</span>

@@ -20,6 +20,7 @@ import POSEmployee from './pages/POSEmployee';
 import POSInventory from './pages/POSInventory';
 import POSWorkshop from './pages/POSWorkshop';
 import AdminDashboard from './pages/AdminDashboard';
+import POSOrders from './pages/POSOrders';
 
 function App() {
   const [autenticado, setAutenticado] = useState(!!localStorage.getItem('token'));
@@ -192,6 +193,19 @@ function App() {
             autenticado ? (
               <PageLayout isSidebarOpen={isSidebarOpen}>
                 {(userRol === 'empleado' || userRol === 'admin') ? <POSWorkshop /> : <Workshop />}
+              </PageLayout>
+            ) : (
+              <Navigate to="/login" />
+            )
+          } 
+        />
+        {/* RUTA GESTIÓN DE PEDIDOS WEB */}
+        <Route 
+          path="/orders" 
+          element={
+            autenticado ? (
+              <PageLayout isSidebarOpen={isSidebarOpen}>
+                {(userRol === 'empleado' || userRol === 'admin') ? <POSOrders /> : <Navigate to="/" />}
               </PageLayout>
             ) : (
               <Navigate to="/login" />

@@ -156,7 +156,7 @@ function Cart({ userName, cartItems, updateQuantity, removeFromCart, globalCP, s
                     className="flex items-center gap-3 cursor-pointer group flex-1 min-w[200px]"
                   >
                     <div className="w-12 h-12 flex items-center justify-center text-4xl overflow-hidden relative">
-                      {displayImg && displayImg.startsWith('data:image') ? (
+                      {displayImg && (displayImg.startsWith('data:image') || displayImg.startsWith('http')) ? (
                         <img src={displayImg} alt={item.nombre} className="w-full h-full object-cover rounded-lg border border-slate-200 group-hover:opacity-60 transition-opacity" />
                       ) : (
                         <span className="group-hover:opacity-60 transition-opacity">{displayImg || '🚲'}</span>
@@ -268,7 +268,7 @@ function Cart({ userName, cartItems, updateQuantity, removeFromCart, globalCP, s
             {/* CARRUSEL DE FOTOS */}
             <div className="flex flex-col gap-3">
               <div className="bg-slate-50 border border-slate-200 h-56 rounded-2xl flex items-center justify-center text-7xl relative overflow-hidden p-4">
-                {activeProductView.images[activeImageIdx] && activeProductView.images[activeImageIdx].startsWith('data:image') ? (
+                {activeProductView.images[activeImageIdx] && (activeProductView.images[activeImageIdx].startsWith('data:image') || activeProductView.images[activeImageIdx].startsWith('http')) ? (
                   <img src={activeProductView.images[activeImageIdx]} alt="Visor" className="w-full h-full object-contain" />
                 ) : (
                   activeProductView.images[0] || '🚲'
@@ -410,7 +410,7 @@ function Cart({ userName, cartItems, updateQuantity, removeFromCart, globalCP, s
                       placeholder="Calle, Número, Departamento, Barrio o Localidad"
                       className="w-full p-2.5 border border-slate-300 rounded-xl text-xs bg-white text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                     />
-                    <p className="text-[10px] text-slate-400 mt-1 italic">Precargada desde tu perfil. Podés cambiarla si lo deseás.</p>
+                    <p className="text-[10px] text-slate-400 mt-1 italic">¡Recordá colocar tu dirección completa para que el envío sea exitoso!</p>
                   </div>
                 )}
 

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import Header from '../components/Header';
-import { ShoppingCart, CheckCircle, AlertCircle, Eye, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ShoppingCart, CheckCircle, AlertCircle, Eye, X, ChevronLeft, ChevronRight, Truck } from 'lucide-react';
 
 function Products({ userName, addToCart }) {
   const [products, setProducts] = useState([]);
@@ -94,6 +94,17 @@ function Products({ userName, addToCart }) {
         </div>
       </header>
 
+      {/* BANNER DE INFORMACIÓN DE ENVÍOS */}
+      <div className="mb-6 bg-blue-50 border border-blue-200 rounded-2xl p-4 flex items-start gap-3 shadow-xs">
+        <Truck className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+        <div>
+          <h4 className="text-sm font-bold text-blue-800">Información sobre Envíos</h4>
+          <p className="text-xs text-blue-700 mt-1 leading-relaxed">
+            El costo final de envío a tu domicilio se calculará en el carrito de compras. Tené en cuenta que el valor final variará dependiendo de tu método de entrega (Correo Argentino o Envío Particular), tu zona y el medio de pago seleccionado. <strong>¡El retiro en nuestra sucursal siempre es gratuito!</strong>
+          </p>
+        </div>
+      </div>
+
       {notification && (
         <div className="fixed bottom-5 right-5 z-50 bg-slate-900 border border-slate-800 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-2 text-xs font-bold animate-in fade-in slide-in-from-bottom-4 duration-200">
           <CheckCircle className="w-4 h-4 text-emerald-400" /> {notification}
@@ -125,7 +136,7 @@ function Products({ userName, addToCart }) {
               >
                 <div className="space-y-3">
                   <div className="bg-slate-50 border border-slate-100 h-32 md:h-44 rounded-xl flex items-center justify-center text-4xl md:text-6xl group-hover:scale-101 transition-transform relative overflow-hidden">
-                    {displayImg && displayImg.startsWith('data:image') ? (
+                    {displayImg && (displayImg.startsWith('data:image') || displayImg.startsWith('http')) ? (
                       <img src={displayImg} alt={prod.nombre} className="w-full h-full object-cover" />
                     ) : (
                       displayImg || '🚲'
@@ -175,7 +186,7 @@ function Products({ userName, addToCart }) {
             {/* CARRUSEL VISOR LATERAL */}
             <div className="flex flex-col gap-3">
               <div className="bg-slate-50 border border-slate-200 h-64 rounded-2xl flex items-center justify-center text-7xl relative overflow-hidden p-4">
-                {activeProductView.images[activeImageIdx] && activeProductView.images[activeImageIdx].startsWith('data:image') ? (
+                {activeProductView.images[activeImageIdx] && (activeProductView.images[activeImageIdx].startsWith('data:image') || activeProductView.images[activeImageIdx].startsWith('http')) ? (
                   <img src={activeProductView.images[activeImageIdx]} alt="Visor" className="w-full h-full object-contain" />
                 ) : (
                   activeProductView.images[0] || '🚲'
@@ -319,7 +330,7 @@ function Products({ userName, addToCart }) {
                       chosenColor, 
                       chosenSize, 
                       activeProductView.images[activeImageIdx],
-                      stockRealVariante // ENVIAMOS EL STOCK EXACTO AL CARRITO
+                      stockRealVariante 
                     );
                     setActiveProductView(null);
                   }}

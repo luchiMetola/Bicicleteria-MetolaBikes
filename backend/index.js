@@ -3,6 +3,8 @@ const mysql = require('mysql2');
 const cors = require('cors');
 const bcrypt = require('bcryptjs'); 
 const jwt = require('jsonwebtoken');   
+const multer = require('multer'); 
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -12,6 +14,26 @@ const app = express();
 app.use(express.json({ limit: '50mb' })); 
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(cors()); 
+
+// ==========================================
+// CONFIGURACIÓN DE MULTER (GUARDADO DE IMÁGENES)
+// ==========================================
+// Hacer que la carpeta 'uploads' sea accesible desde el navegador
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// dónde y con qué nombre se guardan los archivos
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/'); 
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+// middleware que se usa en las rutas para subir 1 o varias fotos
+const upload = multer({ storage: storage });
 
 // Configuración de la conexión a la base de datos
 const db = mysql.createConnection({
@@ -42,11 +64,12 @@ app.get('/', (req, res) => {
 // RUTA CATÁLOGO GENERAL (CON DETALLE DE VARIANTES)
 // ==========================================================
 app.get('/productos', (req, res) => {
-  // Buscamos los productos y su stock total
+  // Buscamos los productos y su stock total, PERO SOLO LOS ACTIVOS
   const queryProductos = `
     SELECT p.*, IFNULL(SUM(v.stock), 0) AS stock
     FROM productos p
     LEFT JOIN producto_variantes v ON p.id = v.id_producto
+    WHERE p.estado = 'activo'
     GROUP BY p.id
   `;
 
@@ -286,14 +309,18 @@ app.put('/api/perfil', verificarToken, (req, res) => {
   });
 });
 // ==========================================
-// RUTA HISTORIAL DE VENTAS REALES 
+// RUTA HISTORIAL DE VENTAS REALES (CON DETALLE DE PRODUCTOS)
 // ==========================================
 app.get('/api/historial', verificarToken, (req, res) => {
   const query = `
-    SELECT id, DATE_FORMAT(fecha, '%d/%m/%Y') AS fecha, total, estado_envio, tipo_venta 
-    FROM ventas 
-    WHERE id_usuario = ? 
-    ORDER BY id DESC
+    SELECT v.id, DATE_FORMAT(v.fecha, '%d/%m/%Y') AS fecha, v.total, v.estado_envio, v.tipo_venta,
+           GROUP_CONCAT(CONCAT(p.nombre, ' (x', dv.cantidad, ')') SEPARATOR ', ') AS detalle_productos
+    FROM ventas v
+    LEFT JOIN detalle_venta dv ON v.id = dv.id_venta
+    LEFT JOIN productos p ON dv.id_producto = p.id
+    WHERE v.id_usuario = ? 
+    GROUP BY v.id
+    ORDER BY v.id DESC
   `;
 
   db.query(query, [req.usuarioId], (err, results) => {
@@ -301,8 +328,6 @@ app.get('/api/historial', verificarToken, (req, res) => {
       console.error('Error al consultar el historial de ventas:', err);
       return res.status(500).json({ error: 'Error del servidor al buscar el historial.' });
     }
-
-    // Devuelve un array (que puede estar vacío [] si el usuario no tiene compras aún)
     res.json(results);
   });
 });
@@ -484,61 +509,59 @@ app.post('/api/ventas/presencial', verificarToken, (req, res) => {
   });
 });
 // ===================================================================================
-// RUTA INVENTARIO: CREAR PRODUCTO GENERAL Y SUS VARIANTES FÍSICAS AUTOMÁTICAMENTE
+// RUTA INVENTARIO: CREAR PRODUCTO (AHORA CON MULTER PARA IMÁGENES)
 // ===================================================================================
-app.post('/api/productos', verificarToken, (req, res) => {
-  const { nombre, descripcion, precio, stock, imagen, id_categoria, variantes } = req.body;
+app.post('/api/productos', verificarToken, upload.array('imagenes', 5), (req, res) => {
+  const { nombre, descripcion, precio, stock, id_categoria } = req.body;
+  
+  // Como usamos FormData, los arrays llegan como Texto (String), hay que volverlos a convertir
+  let variantes = [];
+  if (req.body.variantes) {
+    variantes = JSON.parse(req.body.variantes);
+  }
 
   if (!nombre || !precio) {
     return res.status(400).json({ error: 'El nombre y el precio del insumo son obligatorios.' });
   }
 
-  // 1. Insertamos la información base en la tabla Productos
+  
+  let imagenPath = '🚲';
+  if (req.files && req.files.length > 0) {
+    imagenPath = req.files.map(file => 'http://localhost:5000/uploads/' + file.filename).join('|');
+  }
+
+  // 1. Inserta la información base
   const queryProducto = `
     INSERT INTO productos (nombre, descripcion, precio, stock, imagen, id_categoria) 
     VALUES (?, ?, ?, ?, ?, ?)
   `;
 
-  db.query(queryProducto, [nombre, descripcion, precio, stock || 0, imagen || '🚲', id_categoria || 1], (err, result) => {
+  db.query(queryProducto, [nombre, descripcion, precio, stock || 0, imagenPath, id_categoria || 1], (err, result) => {
     if (err) {
       console.error('Error insertando producto general:', err);
       return res.status(500).json({ error: 'Error del servidor al registrar el producto.' });
     }
 
-    const idProductoInsertado = result.insertId; // Capturamos el ID autogenerado del producto
+    const idProductoInsertado = result.insertId;
 
-    // 2. Si el empleado nos envió desglose de variantes por renglón, los guardamos en producto_variantes
+    // 2. Desglose de variantes
     if (variantes && Array.isArray(variantes) && variantes.length > 0) {
       let variantesGuardadas = 0;
       let huboErrorVariante = false;
 
       variantes.forEach((v) => {
-        const queryVariante = `
-          INSERT INTO producto_variantes (id_producto, color, rodado_talla, stock)
-          VALUES (?, ?, ?, ?)
-        `;
-
+        const queryVariante = `INSERT INTO producto_variantes (id_producto, color, rodado_talla, stock) VALUES (?, ?, ?, ?)`;
         db.query(queryVariante, [idProductoInsertado, v.color || 'Único', v.size || 'Único', Number(v.stock || 0)], (errVar) => {
-          if (errVar) {
-            console.error('Error al insertar fila en producto_variantes:', errVar);
-            huboErrorVariante = true;
-          }
-          
+          if (errVar) huboErrorVariante = true;
           variantesGuardadas++;
           if (variantesGuardadas === variantes.length) {
-            if (huboErrorVariante) {
-              return res.status(201).json({ message: 'Producto guardado, pero algunas variantes no se pudieron desglosar.' });
-            }
-            return res.status(201).json({ message: '¡Producto y desglose completo de stock por variantes guardado con éxito!' });
+            if (huboErrorVariante) return res.status(201).json({ message: 'Producto guardado, pero algunas variantes fallaron.' });
+            return res.status(201).json({ message: '¡Producto y variantes guardados con éxito!' });
           }
         });
       });
     } else {
-      // Si se cargó un accesorio simple sin variantes, creamos un renglón por defecto automáticamente
-      const queryVarianteDefault = `
-        INSERT INTO producto_variantes (id_producto, color, rodado_talla, stock)
-        VALUES (?, 'Único', 'Único', ?)
-      `;
+      const queryVarianteDefault = `INSERT INTO producto_variantes (id_producto, color, rodado_talla, stock) VALUES (?, 'Único', 'Único', ?)`;
       db.query(queryVarianteDefault, [idProductoInsertado, stock || 0], () => {
         return res.status(201).json({ message: 'Producto simple guardado en inventario con éxito.' });
       });
@@ -549,37 +572,35 @@ app.post('/api/productos', verificarToken, (req, res) => {
 // ==========================================================
 // RUTA PARA EDITAR/ACTUALIZAR UN PRODUCTO Y SUS VARIANTES
 // ==========================================================
-app.put('/api/productos/:id', (req, res) => {
+app.put('/api/productos/:id', verificarToken, upload.array('imagenes', 5), (req, res) => {
   const { id } = req.params;
-  const { nombre, descripcion, precio, stock, imagen, id_categoria, variantes } = req.body;
+  const { nombre, descripcion, precio, stock, id_categoria, imagen_existente } = req.body;
+  
+  let variantes = [];
+  if (req.body.variantes) {
+    variantes = JSON.parse(req.body.variantes);
+  }
 
-  //Actualizamos la tabla principal (productos)
+  // MAGIA MULTER: Si sube fotos nuevas, pisamos las viejas. Si no, mantenemos las existentes.
+  let imagenPath = imagen_existente || '🚲';
+  if (req.files && req.files.length > 0) {
+    imagenPath = req.files.map(file => 'http://localhost:5000/uploads/' + file.filename).join('|');
+  }
+
   const queryUpdate = 'UPDATE productos SET nombre = ?, descripcion = ?, precio = ?, stock = ?, imagen = ?, id_categoria = ? WHERE id = ?';
   
-  db.query(queryUpdate, [nombre, descripcion, precio, stock, imagen, id_categoria, id], (err, result) => {
-    if (err) {
-      console.error('Error actualizando producto:', err);
-      return res.status(500).json({ error: 'Error del servidor al actualizar producto.' });
-    }
+  db.query(queryUpdate, [nombre, descripcion, precio, stock, imagenPath, id_categoria, id], (err, result) => {
+    if (err) return res.status(500).json({ error: 'Error al actualizar producto.' });
 
-    // Borramos las variantes anteriores de este producto para no duplicar datos
     db.query('DELETE FROM producto_variantes WHERE id_producto = ?', [id], (errDel) => {
-      if (errDel) {
-        console.error('Error borrando variantes antiguas:', errDel);
-        return res.status(500).json({ error: 'Error al limpiar el inventario antiguo.' });
-      }
+      if (errDel) return res.status(500).json({ error: 'Error limpiando variantes antiguas.' });
 
-      //  Insertamos las variantes nuevas con los valores corregidos
       if (variantes && variantes.length > 0) {
-        // Mapeamos el arreglo asegurando usar "v.size" que es lo que manda React
         const values = variantes.map(v => [id, v.color, v.size, v.stock]);
         const queryInsertVar = 'INSERT INTO producto_variantes (id_producto, color, rodado_talla, stock) VALUES ?';
 
         db.query(queryInsertVar, [values], (errIns) => {
-          if (errIns) {
-            console.error('Error insertando variantes nuevas:', errIns);
-            return res.status(500).json({ error: 'Error al guardar el nuevo stock físico.' });
-          }
+          if (errIns) return res.status(500).json({ error: 'Error guardando stock físico.' });
           res.json({ message: '¡Producto y variantes actualizados con éxito!' });
         });
       } else {
@@ -590,16 +611,44 @@ app.put('/api/productos/:id', (req, res) => {
 });
 
 // ==========================================
-// RUTA INVENTARIO: ELIMINAR PRODUCTO
+// RUTA INVENTARIO: ELIMINAR PRODUCTO (BORRADO LÓGICO / SOFT DELETE)
 // ==========================================
 app.delete('/api/productos/:id', verificarToken, (req, res) => {
   const { id } = req.params;
-  db.query('DELETE FROM productos WHERE id = ?', [id], (err, result) => {
+  
+  // En vez de usar DELETE FROM, usamos UPDATE para cambiar el estado
+  const query = "UPDATE productos SET estado = 'inactivo' WHERE id = ?";
+  
+  db.query(query, [id], (err, result) => {
     if (err) {
-      console.error('Error eliminando producto:', err);
-      return res.status(500).json({ error: 'Error del servidor al eliminar el producto.' });
+      console.error('Error al dar de baja el producto:', err);
+      return res.status(500).json({ error: 'Error del servidor al desactivar el producto.' });
     }
-    res.json({ message: 'Producto dado de baja correctamente.' });
+    res.json({ message: 'Producto dado de baja (oculto del catálogo) correctamente.' });
+  });
+});
+// ==========================================
+// RUTA INVENTARIO (ADMIN/EMPLEADO): TRAER ABSOLUTAMENTE TODOS LOS PRODUCTOS
+// ==========================================
+app.get('/api/admin/productos', verificarToken, (req, res) => {
+  const queryProductos = `
+    SELECT p.*, IFNULL(SUM(v.stock), 0) AS stock
+    FROM productos p
+    LEFT JOIN producto_variantes v ON p.id = v.id_producto
+    GROUP BY p.id
+  `;
+
+  db.query(queryProductos, (err, products) => {
+    if (err) return res.status(500).json({ error: 'Error obteniendo productos para inventario' });
+    
+    db.query('SELECT * FROM producto_variantes', (err, variants) => {
+      if (err) return res.status(500).json({ error: 'Error obteniendo variantes' });
+      const productsWithVariants = products.map(p => {
+        const pVariants = variants.filter(v => v.id_producto === p.id);
+        return { ...p, variantes: pVariants };
+      });
+      res.json(productsWithVariants);
+    });
   });
 });
 // ==========================================================
@@ -774,6 +823,48 @@ app.delete('/api/admin/equipo/:id', verificarToken, (req, res) => {
     }
 
     res.json({ message: 'Solicitud eliminada correctamente del registro histórico.' });
+  });
+});
+// ==========================================================
+// MÓDULO EMPLEADO/ADMIN: GESTIÓN DE PEDIDOS WEB (LOGÍSTICA)
+// ==========================================================
+// 1. Traer todos los pedidos online con detalle de productos y cliente
+app.get('/api/pedidos', verificarToken, (req, res) => {
+  const query = `
+    SELECT v.id, DATE_FORMAT(v.fecha, '%d/%m/%Y %H:%i') AS fecha, v.total, v.estado_envio, v.tipo_venta,
+           u.nombre AS cliente_nombre, u.telefono AS cliente_telefono, u.direccion AS cliente_direccion,
+           GROUP_CONCAT(CONCAT(p.nombre, ' (', IFNULL(dv.color, 'Único'), ' / ', IFNULL(dv.rodado_talla, 'Único'), ') x', dv.cantidad) SEPARATOR ' | ') AS detalle_productos
+    FROM ventas v
+    LEFT JOIN detalle_venta dv ON v.id = dv.id_venta
+    LEFT JOIN productos p ON dv.id_producto = p.id
+    LEFT JOIN usuarios u ON v.id_usuario = u.id
+    WHERE v.tipo_venta LIKE '%Web%'
+    GROUP BY v.id
+    ORDER BY v.id DESC
+  `;
+
+  db.query(query, (err, results) => {
+    if (err) {
+      console.error('Error al consultar pedidos:', err);
+      return res.status(500).json({ error: 'Error del servidor al buscar los pedidos.' });
+    }
+    res.json(results);
+  });
+});
+
+// 2. Actualizar el estado logístico de un pedido
+app.put('/api/pedidos/:id/estado', verificarToken, (req, res) => {
+  const { id } = req.params;
+  const { estado_envio } = req.body;
+
+  const query = 'UPDATE ventas SET estado_envio = ? WHERE id = ?';
+
+  db.query(query, [estado_envio, id], (err, result) => {
+    if (err) {
+      console.error('Error al actualizar estado del pedido:', err);
+      return res.status(500).json({ error: 'Error del servidor al actualizar el pedido.' });
+    }
+    res.json({ message: 'Estado del paquete actualizado con éxito.' });
   });
 });
 

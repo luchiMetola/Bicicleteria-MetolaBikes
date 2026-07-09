@@ -1,6 +1,6 @@
 
 import { Link, useLocation } from 'react-router-dom';
-import { Home, Package, Wrench, User, LogOut, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Home, Package, Wrench, User, LogOut, ChevronLeft, ChevronRight, Truck } from 'lucide-react';
 
 function POSSidebar({isSidebarOpen, setIsSidebarOpen}) {
 
@@ -47,6 +47,10 @@ function POSSidebar({isSidebarOpen, setIsSidebarOpen}) {
           <Link to="/products" className={linkClase('/products')}>
             <Package className="w-5 h-5 shrink-0" />
             {isSidebarOpen && <span>Inventario Stock</span>}
+          </Link>
+          <Link to="/orders" className={linkClase('/orders')}>
+            <Truck className="w-5 h-5 shrink-0" />
+            {isSidebarOpen && <span>Gestión de Envíos</span>}
           </Link>
 
           <Link to="/workshop" className={linkClase('/workshop')}>

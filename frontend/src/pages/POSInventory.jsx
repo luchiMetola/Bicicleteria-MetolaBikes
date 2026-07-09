@@ -15,20 +15,22 @@ function POSInventory() {
   const [features, setDescripcion] = useState('');
   const [price, setPrecio] = useState('');
   const [categoryId, setIdCategory] = useState('1');
+  const [mostrarInactivos, setMostrarInactivos] = useState(false);
   
-  // GESTIÓN DINÁMICA DE VARIANTES (Ej: Negro con Verde -> 3, Negra con Rosa -> 4)
+  // GESTIÓN DINÁMICA DE VARIANTES
   const [variantsList, setVariantsList] = useState([
     { color: '', size: '', stock: '' }
   ]);
 
-  // SOPORTE PARA MÚLTIPLES IMÁGENES (Convertido en Array [])
-  const [previewImagesList, setPreviewImagesList] = useState([]);
+  // SOPORTE PARA MÚLTIPLES IMÁGENES
+  const [previewImagesList, setPreviewImagesList] = useState([]); // Visualización previa
+  const [imageFiles, setImageFiles] = useState([]); // Archivos físicos reales para Multer
   const [dragOver, setDragOver] = useState(false);
 
   useEffect(() => {
     const loadInventoryData = async () => {
       try {
-        const response = await axios.get('http://localhost:5000/productos');
+        const response = await axios.get('http://localhost:5000/api/admin/productos', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
         setProducts(response.data);
       } catch (error) {
         console.error('Error fetching inventory array:', error);
@@ -39,14 +41,13 @@ function POSInventory() {
 
   const fetchProductsAfterAction = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/productos');
+      const response = await axios.get('http://localhost:5000/api/admin/productos', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
       setProducts(response.data);
     } catch (error) {
       console.error('Error updating state grid:', error);
     }
   };
 
-  // Funciones para manipular la lista dinámica de variantes en el formulario
   const handleAddVariantField = () => {
     setVariantsList([...variantsList, { color: '', size: size || '', stock: '' }]);
   };
@@ -66,14 +67,21 @@ function POSInventory() {
   const processImageFiles = (files) => {
     if (!files || files.length === 0) return;
 
-    Array.from(files).forEach(file => {
+    const newFiles = Array.from(files).filter(file => {
       if (!file.type.startsWith('image/')) {
         setNotification({ text: 'Por favor, selecciona únicamente archivos de imagen.', type: 'error' });
-        return;
+        return false;
       }
+      return true;
+    });
+
+    // Guardar los archivos físicos reales
+    setImageFiles(prev => [...prev, ...newFiles]);
+
+    // Crear vista previa para el usuario
+    newFiles.forEach(file => {
       const reader = new FileReader();
       reader.onloadend = () => {
-        // Añade la nueva imagen en Base64 al array existente de imágenes
         setPreviewImagesList(prev => [...prev, reader.result]);
       };
       reader.readAsDataURL(file);
@@ -94,45 +102,51 @@ function POSInventory() {
 
   const handleRemoveImage = (indexToRemove) => {
     setPreviewImagesList(prev => prev.filter((_, idx) => idx !== indexToRemove));
+    setImageFiles(prev => prev.filter((_, idx) => idx !== indexToRemove));
   };
 
+  // ENVÍO AL BACKEND USANDO FORMDATA
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     
-    // Calculamos el stock total sumando el desglose de todas las variantes ingresadas
     const calculatedTotalStock = variantsList.reduce((acc, curr) => acc + Number(curr.stock || 0), 0);
-
-    // Mapeamos los textos simples para el campo descriptivo histórico
     const uniqueColorsText = [...new Set(variantsList.map(v => v.color).filter(Boolean))].join(', ');
     const uniqueSizesText = size || [...new Set(variantsList.map(v => v.size).filter(Boolean))].join(', ');
-
     const formattedDescription = `Modelo: ${model} | Rodado/Talle: ${uniqueSizesText} | Colores: ${uniqueColorsText} | Detalles: ${features}`;
 
-    // Si hay múltiples imágenes, las mandamos juntas separadas por una coma, o pasamos la primera/default
-    const imagesPayloadString = previewImagesList.length > 0 ? previewImagesList.join('|') : '🚲';
+    const formData = new FormData();
+    formData.append('nombre', name);
+    formData.append('descripcion', formattedDescription);
+    formData.append('precio', Number(price));
+    formData.append('stock', calculatedTotalStock);
+    formData.append('id_categoria', Number(categoryId));
+    formData.append('variantes', JSON.stringify(variantsList));
 
-    const payload = {
-      nombre: name,
-      descripcion: formattedDescription,
-      precio: Number(price),
-      stock: calculatedTotalStock, 
-      imagen: imagesPayloadString, // Envía la cadena unificada de imágenes
-      id_categoria: Number(categoryId),
-      variantes: variantsList 
-    };
+    // Adjuntar los archivos físicos reales
+    imageFiles.forEach(file => {
+      formData.append('imagenes', file);
+    });
+
+    // Si editamos y NO subimos fotos nuevas, avisamos que conserve las viejas
+    if (editingId && imageFiles.length === 0 && previewImagesList.length > 0) {
+      formData.append('imagen_existente', previewImagesList.join('|'));
+    }
 
     try {
       const token = localStorage.getItem('token');
+      const config = {
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      };
+
       if (editingId) {
-        const res = await axios.put(`http://localhost:5000/api/productos/${editingId}`, payload, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const res = await axios.put(`http://localhost:5000/api/productos/${editingId}`, formData, config);
         setNotification({ text: res.data.message, type: 'success' });
       } else {
-        const res = await axios.post('http://localhost:5000/api/productos', payload, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const res = await axios.post('http://localhost:5000/api/productos', formData, config);
         setNotification({ text: res.data.message, type: 'success' });
       }
 
@@ -157,10 +171,10 @@ function POSInventory() {
     } else {
       setPreviewImagesList(product.imagen && product.imagen !== '🚲' ? [product.imagen] : []);
     }
+    setImageFiles([]); // Limpiar archivos físicos anteriores
     
     setIdCategory(product.id_categoria || '1');
 
-    // Analizamos el string descriptivo para sacar el modelo y la ficha general
     const attrs = { model: '', details: '' };
     if (product.descripcion) {
       const parts = product.descripcion.split('|');
@@ -172,7 +186,6 @@ function POSInventory() {
     setModelo(attrs.model || 'Único');
     setDescripcion(attrs.details || product.descripcion);
 
-    //Carga las variantes reales del producto en lugar de vaciarlas
     if (product.variantes && product.variantes.length > 0) {
       const mapeoVariantes = product.variantes.map(v => ({
         color: v.color,
@@ -209,6 +222,7 @@ function POSInventory() {
     setDescripcion('');
     setPrecio('');
     setPreviewImagesList([]);
+    setImageFiles([]);
     setVariantsList([{ color: '', size: '', stock: '' }]);
   };
 
@@ -352,9 +366,21 @@ function POSInventory() {
         </form>
       </div>
 
-      {/* TABLA DE CONTROL */}
+      {/* TABLA DE CONTROL Y FILTROS */}
       <div className="bg-slate-800 border border-slate-200 rounded-2xl p-5 shadow-xs overflow-x-auto">
-        <h3 className="text-sm font-bold text-slate-200 mb-4">Lista de Control General de Stock ({products.length} ítems)</h3>
+        <div className="flex justify-between items-center mb-4 border-b border-slate-700 pb-3">
+          <h3 className="text-sm font-bold text-slate-200">Lista de Control General de Stock</h3>
+          
+          <button 
+            onClick={() => setMostrarInactivos(!mostrarInactivos)}
+            className={`text-[10px] font-bold px-3 py-1.5 rounded-lg border transition-colors cursor-pointer ${
+              mostrarInactivos ? 'bg-amber-600 border-amber-500 text-white' : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600'
+            }`}
+          >
+            {mostrarInactivos ? 'Ocultar Inactivos / Borrados' : 'Mostrar Inactivos / Borrados'}
+          </button>
+        </div>
+
         <table className="w-full text-left text-xs border-collapse">
           <thead>
             <tr className="border-b border-slate-200 text-slate-400 uppercase font-bold tracking-wider">
@@ -363,20 +389,20 @@ function POSInventory() {
               <th className="py-3">Producto</th>
               <th className="py-3">Ficha Técnica Formateada</th>
               <th className="py-3">Stock Acumulado</th>
-              <th className="py-3">Precio</th>
+              <th className="py-3">Estado</th>
               <th className="py-3 text-right pr-2">Acciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-slate-600 font-semibold">
-            {products.map((prod) => {
-              // Muestra la primera imagen si es un conjunto separado por '|'
+            {products
+              .filter(prod => mostrarInactivos ? prod.estado === 'inactivo' : prod.estado !== 'inactivo')
+              .map((prod) => {
               const displayImg = prod.imagen && prod.imagen.includes('|') ? prod.imagen.split('|')[0] : prod.imagen;
-              
               return (
-                <tr key={prod.id} className="hover:bg-slate-50/80 transition-colors">
+                <tr key={prod.id} className={`hover:bg-slate-50/80 transition-colors ${prod.estado === 'inactivo' ? 'opacity-60 bg-slate-100' : ''}`}>
                   <td className="py-3 pl-2 text-slate-400">#{prod.id}</td>
                   <td className="py-3 text-xl">
-                    {displayImg && displayImg.startsWith('data:image') ? (
+                    {displayImg && (displayImg.startsWith('data:image') || displayImg.startsWith('http')) ? (
                       <img src={displayImg} alt="Preview" className="w-8 h-8 rounded-lg object-cover border border-slate-200" />
                     ) : (
                       displayImg || '🚲'
@@ -389,10 +415,18 @@ function POSInventory() {
                       {prod.stock} un.
                     </span>
                   </td>
-                  <td className="py-3 text-slate-900 font-black">${Number(prod.precio).toLocaleString('es-AR')}</td>
+                  <td className="py-3">
+                    {prod.estado === 'inactivo' ? (
+                      <span className="px-2 py-0.5 bg-slate-300 text-slate-700 rounded-md text-[9px] uppercase font-black">De Baja</span>
+                    ) : (
+                      <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-md text-[9px] uppercase font-black">Activo</span>
+                    )}
+                  </td>
                   <td className="py-3 text-right pr-2 space-x-1">
                     <button onClick={() => handleEdit(prod)} title="Editar" className="p-1.5 hover:bg-slate-200 rounded-lg text-blue-400 cursor-pointer inline-flex items-center"><Edit className="w-3.5 h-3.5" /></button>
-                    <button onClick={() => handleDelete(prod.id)} title="Dar de baja" className="p-1.5 hover:bg-slate-100 rounded-lg text-rose-600 cursor-pointer inline-flex items-center"><Trash2 className="w-3.5 h-3.5" /></button>
+                    {prod.estado !== 'inactivo' && (
+                      <button onClick={() => handleDelete(prod.id)} title="Dar de baja" className="p-1.5 hover:bg-slate-100 rounded-lg text-rose-600 cursor-pointer inline-flex items-center"><Trash2 className="w-3.5 h-3.5" /></button>
+                    )}
                   </td>
                 </tr>
               );

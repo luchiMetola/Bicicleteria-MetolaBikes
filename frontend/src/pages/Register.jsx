@@ -120,7 +120,7 @@ function Register() {
             <div className="relative">
               <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input 
-                type="text" value={address} onChange={(e) => setAddress(e.target.value)} required placeholder="Av. Libertador 1230, San Juan, Argentina"
+                type="text" value={address} onChange={(e) => setAddress(e.target.value)} required placeholder="Calle, Número, Departamento/Barrio y Localidad"
                 className="w-full p-2.5 pl-10 border border-slate-300 rounded-lg text-sm bg-slate-50 text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               />
             </div>
