@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import Header from '../components/Header';
-import { ShoppingCart, CheckCircle, AlertCircle, Eye, X, ChevronLeft, ChevronRight, Truck } from 'lucide-react';
+import { ShoppingCart, CheckCircle, AlertCircle, Eye, X, ChevronLeft, ChevronRight, Truck, Percent } from 'lucide-react';
 
 function Products({ userName, addToCart }) {
   const [products, setProducts] = useState([]);
@@ -9,7 +9,6 @@ function Products({ userName, addToCart }) {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [notification, setNotification] = useState('');
 
-  // Estados para controlar el visor interactivo del Modal de Detalles
   const [activeProductView, setActiveProductView] = useState(null);
   const [activeImageIdx, setActiveImageIdx] = useState(0);
   const [chosenColor, setChosenColor] = useState('');
@@ -28,38 +27,31 @@ function Products({ userName, addToCart }) {
   }, []);
 
   const parseAttributes = (rawText) => {
-    const attributes = { model: '', sizes: [], colors: [], details: '' };
+    const attributes = { model: '', details: '' };
     if (!rawText) return attributes;
 
     const parts = rawText.split('|');
     parts.forEach(part => {
       if (part.includes('Modelo:')) attributes.model = part.replace('Modelo:', '').trim();
-      if (part.includes('Rodado/Talle:')) {
-        const rawSizes = part.replace('Rodado/Talle:', '').trim();
-        attributes.sizes = rawSizes.split(',').map(s => s.trim()).filter(Boolean);
-      }
-      if (part.includes('Colores:')) {
-        attributes.colors = part.replace('Colores:', '').split(',').map(c => c.trim()).filter(Boolean);
-      }
       if (part.includes('Detalles:')) attributes.details = part.replace('Detalles:', '').trim();
     });
 
     return attributes;
   };
 
-  // Recibe el "stockVarianteExacto" calculado para limitar el carrito
-  const handleTriggerAddToCart = (prod, color, size, imgBase64, stockVarianteExacto) => {
+  const handleTriggerAddToCart = (prod, color, size, imgBase64, stockVarianteExacto, precioFinalConDescuento) => {
     const productWithVariants = {
       ...prod,
       nombre: prod.nombre,
       colorElegido: color,
       rodado: size,
       imagen: imgBase64 || '🚲',
-      stock: stockVarianteExacto // <-- Pasa el tope matemático exacto al carrito
+      stock: stockVarianteExacto,
+      precio: precioFinalConDescuento
     };
 
     addToCart(productWithVariants, color);
-    setNotification(`¡Añadido al carrito: ${prod.nombre} (${color} - ${size})!`);
+    setNotification(`¡Añadido al carrito con oferta: ${prod.nombre}!`);
     setTimeout(() => setNotification(''), 3000);
   };
 
@@ -69,11 +61,16 @@ function Products({ userName, addToCart }) {
     return matchesSearch && matchesCategory;
   });
 
-  // Lógica matemática para buscar el stock de la variante que el usuario está tocando
   const varianteSeleccionada = activeProductView?.prod.variantes?.find(
     (v) => v.color === chosenColor && v.rodado_talla === chosenSize
   );
   const stockRealVariante = varianteSeleccionada ? varianteSeleccionada.stock : 0;
+
+  const vistaTieneDescuento = activeProductView?.prod.descuento > 0;
+  const vistaPrecioLista = Number(activeProductView?.prod.precio || 0);
+  const vistaPrecioOferta = vistaTieneDescuento 
+    ? vistaPrecioLista - (vistaPrecioLista * (activeProductView.prod.descuento / 100)) 
+    : vistaPrecioLista;
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans p-4 md:p-8 w-full transition-all">
@@ -94,7 +91,6 @@ function Products({ userName, addToCart }) {
         </div>
       </header>
 
-      {/* BANNER DE INFORMACIÓN DE ENVÍOS */}
       <div className="mb-6 bg-blue-50 border border-blue-200 rounded-2xl p-4 flex items-start gap-3 shadow-xs">
         <Truck className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
         <div>
@@ -121,19 +117,43 @@ function Products({ userName, addToCart }) {
           {filteredProducts.map((prod) => {
             const attrs = parseAttributes(prod.descripcion);
             const displayImg = prod.imagen && prod.imagen.includes('|') ? prod.imagen.split('|')[0] : prod.imagen;
+            
+            const tieneDescuento = prod.descuento > 0;
+            const precioLista = Number(prod.precio);
+            const precioOferta = tieneDescuento ? precioLista - (precioLista * (prod.descuento / 100)) : precioLista;
 
             return (
               <div 
                 key={prod.id} 
                 onClick={() => {
                   let listImgs = prod.imagen && prod.imagen.includes('|') ? prod.imagen.split('|') : [prod.imagen || '🚲'];
-                  setChosenColor(attrs.colors[0] || 'Único');
-                  setChosenSize(attrs.sizes[0] || 'Único');
+                  
+                  // MAGIA NUEVA: Escaneamos directamente las variantes reales de la base de datos
+                  const extractColors = [...new Set(prod.variantes?.map(v => v.color))].filter(c => c);
+                  const extractSizes = [...new Set(prod.variantes?.map(v => v.rodado_talla))].filter(s => s);
+                  
+                  const finalColors = extractColors.length > 0 ? extractColors : ['Único'];
+                  const finalSizes = extractSizes.length > 0 ? extractSizes : ['Único'];
+
+                  setChosenColor(finalColors[0]);
+                  setChosenSize(finalSizes[0]);
                   setActiveImageIdx(0);
-                  setActiveProductView({ prod, attrs, images: listImgs });
+                  setActiveProductView({ 
+                    prod, 
+                    attrs, 
+                    images: listImgs,
+                    colors: finalColors,
+                    sizes: finalSizes
+                  });
                 }}
-                className="bg-white border border-slate-200 rounded-2xl p-3 md:p-5 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between group cursor-pointer relative"
+                className="bg-white border border-slate-200 rounded-2xl p-3 md:p-5 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden"
               >
+                {tieneDescuento && (
+                  <div className="absolute top-2 left-2 bg-rose-500 text-white text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-wider flex items-center gap-0.5 shadow-sm z-10">
+                    <Percent className="w-2.5 h-2.5" /> {prod.descuento} de Descuento
+                  </div>
+                )}
+
                 <div className="space-y-3">
                   <div className="bg-slate-50 border border-slate-100 h-32 md:h-44 rounded-xl flex items-center justify-center text-4xl md:text-6xl group-hover:scale-101 transition-transform relative overflow-hidden">
                     {displayImg && (displayImg.startsWith('data:image') || displayImg.startsWith('http')) ? (
@@ -157,13 +177,15 @@ function Products({ userName, addToCart }) {
                   </div>
                 </div>
 
-                <div className="pt-2 md:pt-4 mt-2 md:mt-4 border-t border-slate-100 flex items-center justify-between gap-1">
-                  <span className="text-sm md:text-lg font-black text-slate-900">
-                    ${Number(prod.precio).toLocaleString('es-AR')}
-                  </span>
-                  <span className="text-[10px] bg-slate-100 font-bold px-1.5 py-0.5 border border-slate-200 text-slate-500 rounded-md">
-                    Ver más
-                  </span>
+                <div className="pt-2 md:pt-4 mt-2 md:mt-4 border-t border-slate-100 flex flex-col justify-end gap-1 min-h-50px">
+                  {tieneDescuento ? (
+                    <div className="flex flex-col items-end leading-tight">
+                      <span className="text-slate-400 text-[10px] line-through font-bold">${precioLista.toLocaleString('es-AR')}</span>
+                      <span className="text-base md:text-lg font-black text-rose-600">${precioOferta.toLocaleString('es-AR')}</span>
+                    </div>
+                  ) : (
+                    <span className="text-base md:text-lg font-black text-slate-900 text-right">${precioLista.toLocaleString('es-AR')}</span>
+                  )}
                 </div>
               </div>
             );
@@ -171,7 +193,7 @@ function Products({ userName, addToCart }) {
         </div>
       )}
 
-      {/* MODAL EXTENDIDO */}
+      {/* MODAL EXTENDIDO CON SOPORTE PARA OFERTAS Y VARIANTES REALES */}
       {activeProductView && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl border border-slate-200 max-w-3xl w-full p-6 shadow-2xl relative grid grid-cols-1 md:grid-cols-2 gap-6 max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
@@ -183,9 +205,13 @@ function Products({ userName, addToCart }) {
               <X className="w-4 h-4" />
             </button>
 
-            {/* CARRUSEL VISOR LATERAL */}
             <div className="flex flex-col gap-3">
               <div className="bg-slate-50 border border-slate-200 h-64 rounded-2xl flex items-center justify-center text-7xl relative overflow-hidden p-4">
+                {vistaTieneDescuento && (
+                  <div className="absolute top-3 left-3 bg-rose-500 text-white text-xs font-black px-3 py-1.5 rounded-lg uppercase tracking-wider flex items-center gap-1 shadow-sm z-10">
+                    <Percent className="w-4 h-4" /> {activeProductView.prod.descuento}de Descuento
+                  </div>
+                )}
                 {activeProductView.images[activeImageIdx] && (activeProductView.images[activeImageIdx].startsWith('data:image') || activeProductView.images[activeImageIdx].startsWith('http')) ? (
                   <img src={activeProductView.images[activeImageIdx]} alt="Visor" className="w-full h-full object-contain" />
                 ) : (
@@ -194,20 +220,8 @@ function Products({ userName, addToCart }) {
 
                 {activeProductView.images.length > 1 && (
                   <>
-                    <button 
-                      type="button"
-                      onClick={() => setActiveImageIdx(prev => (prev === 0 ? activeProductView.images.length - 1 : prev - 1))}
-                      className="absolute left-2 bg-white/80 p-1 rounded-lg border border-slate-200 text-slate-700 shadow-2xs cursor-pointer"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <button 
-                      type="button"
-                      onClick={() => setActiveImageIdx(prev => (prev === activeProductView.images.length - 1 ? 0 : prev + 1))}
-                      className="absolute right-2 bg-white/80 p-1 rounded-lg border border-slate-200 text-slate-700 shadow-2xs cursor-pointer"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
+                    <button type="button" onClick={() => setActiveImageIdx(prev => (prev === 0 ? activeProductView.images.length - 1 : prev - 1))} className="absolute left-2 bg-white/80 p-1 rounded-lg border border-slate-200 text-slate-700 shadow-2xs cursor-pointer"><ChevronLeft className="w-4 h-4" /></button>
+                    <button type="button" onClick={() => setActiveImageIdx(prev => (prev === activeProductView.images.length - 1 ? 0 : prev + 1))} className="absolute right-2 bg-white/80 p-1 rounded-lg border border-slate-200 text-slate-700 shadow-2xs cursor-pointer"><ChevronRight className="w-4 h-4" /></button>
                   </>
                 )}
               </div>
@@ -215,13 +229,7 @@ function Products({ userName, addToCart }) {
               {activeProductView.images.length > 1 && (
                 <div className="flex gap-1.5 overflow-x-auto pb-1">
                   {activeProductView.images.map((imgStr, idx) => (
-                    <div 
-                      key={idx} 
-                      onClick={() => setActiveImageIdx(idx)}
-                      className={`w-12 h-12 bg-slate-50 border rounded-xl overflow-hidden cursor-pointer flex items-center justify-center p-1 shadow-2xs transition-all ${
-                        activeImageIdx === idx ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200'
-                      }`}
-                    >
+                    <div key={idx} onClick={() => setActiveImageIdx(idx)} className={`w-12 h-12 bg-slate-50 border rounded-xl overflow-hidden cursor-pointer flex items-center justify-center p-1 shadow-2xs transition-all ${activeImageIdx === idx ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200'}`}>
                       <img src={imgStr} alt="Mini" className="w-full h-full object-contain" />
                     </div>
                   ))}
@@ -229,7 +237,6 @@ function Products({ userName, addToCart }) {
               )}
             </div>
 
-            {/* SECCIÓN DERECHA DE OPCIONES */}
             <div className="flex flex-col justify-between space-y-4">
               <div className="space-y-3">
                 <div>
@@ -238,34 +245,24 @@ function Products({ userName, addToCart }) {
                   <p className="text-slate-400 font-semibold text-[11px] mt-0.5">Modelo/Línea: {activeProductView.attrs.model || 'Línea de Fábrica'}</p>
                 </div>
 
-                <div className="text-xl font-black text-slate-900 bg-slate-50 p-3 border border-slate-200 rounded-xl flex justify-between items-center">
-                  <span className="text-xs font-bold text-slate-500 uppercase">Precio de Lista:</span>
-                  <span>${Number(activeProductView.prod.precio).toLocaleString('es-AR')}</span>
+                <div className={`p-3 border rounded-xl flex justify-between items-center ${vistaTieneDescuento ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-200'}`}>
+                  <span className={`text-xs font-bold uppercase ${vistaTieneDescuento ? 'text-rose-700' : 'text-slate-500'}`}>Precio Final:</span>
+                  <div className="text-right leading-none">
+                    {vistaTieneDescuento && <span className="text-[11px] text-slate-400 line-through font-bold mr-2">${vistaPrecioLista.toLocaleString('es-AR')}</span>}
+                    <span className={`text-2xl font-black ${vistaTieneDescuento ? 'text-rose-600' : 'text-slate-900'}`}>${vistaPrecioOferta.toLocaleString('es-AR')}</span>
+                  </div>
                 </div>
 
-                {/* Filtro interactivo de Talles */}
-                {activeProductView.attrs.sizes.length > 0 && (
+                {/* Filtro interactivo de Talles leídos desde BD */}
+                {activeProductView.sizes.length > 0 && activeProductView.sizes[0] !== 'Único' && (
                   <div className="space-y-1">
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Seleccionar Rodado / Talle:</label>
                     <div className="flex flex-wrap gap-1">
-                      {activeProductView.attrs.sizes.map((s) => {
-                        // Verificamos si este talle tiene stock en combinación con el color elegido
-                        const stockTalle = activeProductView.prod.variantes
-                          ?.filter(v => v.rodado_talla === s && v.color === chosenColor)
-                          .reduce((acc, curr) => acc + curr.stock, 0) || 0;
-                        
+                      {activeProductView.sizes.map((s) => {
+                        const stockTalle = activeProductView.prod.variantes?.filter(v => v.rodado_talla === s && v.color === chosenColor).reduce((acc, curr) => acc + curr.stock, 0) || 0;
                         const sinStock = stockTalle <= 0;
-
                         return (
-                          <button
-                            key={s} type="button"
-                            disabled={sinStock}
-                            onClick={() => setChosenSize(s)}
-                            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all ${
-                              sinStock ? 'opacity-40 line-through bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' :
-                              chosenSize === s ? 'bg-slate-900 border-slate-900 text-white shadow-xs' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer'
-                            }`}
-                          >
+                          <button key={s} type="button" disabled={sinStock} onClick={() => setChosenSize(s)} className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all ${sinStock ? 'opacity-40 line-through bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' : chosenSize === s ? 'bg-slate-900 border-slate-900 text-white shadow-xs' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer'}`}>
                             {s}
                           </button>
                         );
@@ -274,29 +271,16 @@ function Products({ userName, addToCart }) {
                   </div>
                 )}
 
-                {/* Filtro interactivo de Colores con Tachado Dinámico */}
-                {activeProductView.attrs.colors.length > 0 && (
+                {/* Filtro interactivo de Colores leídos desde BD */}
+                {activeProductView.colors.length > 0 && activeProductView.colors[0] !== 'Único' && (
                   <div className="space-y-1">
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Seleccionar Color:</label>
                     <div className="flex flex-wrap gap-1">
-                      {activeProductView.attrs.colors.map((c) => {
-                        // Sumamos el stock de todas las variantes que tengan este color
-                        const stockColor = activeProductView.prod.variantes
-                          ?.filter(v => v.color === c)
-                          .reduce((acc, curr) => acc + curr.stock, 0) || 0;
-                        
+                      {activeProductView.colors.map((c) => {
+                        const stockColor = activeProductView.prod.variantes?.filter(v => v.color === c).reduce((acc, curr) => acc + curr.stock, 0) || 0;
                         const sinStock = stockColor <= 0;
-
                         return (
-                          <button
-                            key={c} type="button"
-                            disabled={sinStock}
-                            onClick={() => setChosenColor(c)}
-                            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all ${
-                              sinStock ? 'opacity-40 line-through bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' :
-                              chosenColor === c ? 'bg-blue-600 border-blue-600 text-white shadow-xs' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer'
-                            }`}
-                          >
+                          <button key={c} type="button" disabled={sinStock} onClick={() => setChosenColor(c)} className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all ${sinStock ? 'opacity-40 line-through bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' : chosenColor === c ? 'bg-blue-600 border-blue-600 text-white shadow-xs' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer'}`}>
                             {c}
                           </button>
                         );
@@ -317,7 +301,7 @@ function Products({ userName, addToCart }) {
                 <div className="flex flex-col">
                   <span className="text-[9px] uppercase font-bold text-slate-400">Disponibilidad Variante</span>
                   <span className={`text-xs font-bold ${stockRealVariante > 0 ? 'text-slate-700' : 'text-rose-600'}`}>
-                    {stockRealVariante > 0 ? `📦 ${stockRealVariante} un. disponibles` : '⚠️ Combinación Sin Stock'}
+                    {stockRealVariante > 0 ? `📦 ${stockRealVariante} un. disponibles` : '¡Combinación Sin Stock!'}
                   </span>
                 </div>
 
@@ -325,13 +309,7 @@ function Products({ userName, addToCart }) {
                   type="button"
                   disabled={stockRealVariante <= 0}
                   onClick={() => {
-                    handleTriggerAddToCart(
-                      activeProductView.prod, 
-                      chosenColor, 
-                      chosenSize, 
-                      activeProductView.images[activeImageIdx],
-                      stockRealVariante 
-                    );
+                    handleTriggerAddToCart(activeProductView.prod, chosenColor, chosenSize, activeProductView.images[activeImageIdx], stockRealVariante, vistaPrecioOferta);
                     setActiveProductView(null);
                   }}
                   className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-colors uppercase tracking-wider cursor-pointer"
@@ -345,7 +323,6 @@ function Products({ userName, addToCart }) {
           </div>
         </div>
       )}
-
     </div>
   );
 }

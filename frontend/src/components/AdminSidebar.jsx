@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { TrendingUp, Package, Wrench, Users, LogOut, ChevronLeft, ChevronRight, Truck } from 'lucide-react';
+import { TrendingUp, Package, Wrench, Users, User, LogOut, ChevronLeft, ChevronRight, Truck, PieChart } from 'lucide-react';
 
 function AdminSidebar({isSidebarOpen, setIsSidebarOpen}) {
   const location = useLocation();
@@ -45,14 +45,22 @@ function AdminSidebar({isSidebarOpen, setIsSidebarOpen}) {
             <Truck className="w-5 h-5 shrink-0" />
             {isSidebarOpen && <span>Gestión de Envíos</span>}
           </Link>
+          <Link to="/analytics" className={linkClase('/analytics')}>
+            <PieChart className="w-5 h-5 shrink-0" />
+            {isSidebarOpen && <span>Estadísticas BI</span>}
+          </Link>
 
           <Link to="/workshop" className={linkClase('/workshop')}>
             <Wrench className="w-5 h-5 shrink-0" />
             {isSidebarOpen && <span>Supervisar Taller</span>}
           </Link>
+          <Link to="/users" className={linkClase('/users')}>
+            <Users className="w-5 h-5 shrink-0" />
+            {isSidebarOpen && <span>Gestión de Usuarios</span>}
+          </Link>
 
           <Link to="/profile" className={linkClase('/profile')}>
-            <Users className="w-5 h-5 shrink-0" />
+            <User className="w-5 h-5 shrink-0" />
             {isSidebarOpen && <span>Perfil</span>}
           </Link>
         </nav>

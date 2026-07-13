@@ -21,6 +21,8 @@ import POSInventory from './pages/POSInventory';
 import POSWorkshop from './pages/POSWorkshop';
 import AdminDashboard from './pages/AdminDashboard';
 import POSOrders from './pages/POSOrders';
+import AdminAnalytics from './pages/AdminAnalytics';
+import AdminUsers from './pages/AdminUsers';
 
 function App() {
   const [autenticado, setAutenticado] = useState(!!localStorage.getItem('token'));
@@ -220,6 +222,32 @@ function App() {
             autenticado ? (
               <PageLayout isSidebarOpen={isSidebarOpen}>
                 <Profile />
+              </PageLayout>
+            ) : (
+              <Navigate to="/login" />
+            )
+          } 
+        />
+        {/* RUTA ESTADÍSTICAS */}
+        <Route 
+          path="/analytics" 
+          element={
+            autenticado ? (
+              <PageLayout isSidebarOpen={isSidebarOpen}>
+                {userRol === 'admin' ? <AdminAnalytics /> : <Navigate to="/" />}
+              </PageLayout>
+            ) : (
+              <Navigate to="/login" />
+            )
+          } 
+        />
+        {/* RUTA GESTIÓN DE USUARIOS */}
+        <Route 
+          path="/users" 
+          element={
+            autenticado ? (
+              <PageLayout isSidebarOpen={isSidebarOpen}>
+                {userRol === 'admin' ? <AdminUsers /> : <Navigate to="/" />}
               </PageLayout>
             ) : (
               <Navigate to="/login" />

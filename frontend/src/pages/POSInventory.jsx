@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Package, Plus, Edit, Trash2, CheckCircle, Upload, X } from 'lucide-react';
+import { Package, Plus, Edit, Trash2, CheckCircle, Upload, X, TicketPercent, Star } from 'lucide-react';
 
 function POSInventory() {
   const [products, setProducts] = useState([]);
@@ -16,6 +16,7 @@ function POSInventory() {
   const [price, setPrecio] = useState('');
   const [categoryId, setIdCategory] = useState('1');
   const [mostrarInactivos, setMostrarInactivos] = useState(false);
+  const [nuevoProducto, setNuevoProducto] = useState({ descuento: 0, destacado: false });
   
   // GESTIÓN DINÁMICA DE VARIANTES
   const [variantsList, setVariantsList] = useState([
@@ -122,6 +123,8 @@ function POSInventory() {
     formData.append('stock', calculatedTotalStock);
     formData.append('id_categoria', Number(categoryId));
     formData.append('variantes', JSON.stringify(variantsList));
+    formData.append('descuento', nuevoProducto.descuento || 0);
+    formData.append('destacado', nuevoProducto.destacado ? true : false);
 
     // Adjuntar los archivos físicos reales
     imageFiles.forEach(file => {
@@ -195,6 +198,11 @@ function POSInventory() {
       setVariantsList(mapeoVariantes);
     } else {
       setVariantsList([{ color: 'Único', size: 'Único', stock: product.stock }]);
+      
+    setNuevoProducto({ 
+      descuento: product.descuento || 0, 
+      destacado: Boolean(product.destacado) 
+    });
     }
     
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -224,6 +232,7 @@ function POSInventory() {
     setPreviewImagesList([]);
     setImageFiles([]);
     setVariantsList([{ color: '', size: '', stock: '' }]);
+    setNuevoProducto({ descuento: 0, destacado: false });
   };
 
   return (
@@ -277,6 +286,38 @@ function POSInventory() {
                 <option value="4">Suplementos</option>
               </select>
             </div>
+            {/* NUEVOS CONTROLES DE MARKETING (HOME Y DESCUENTOS) */}
+              <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold uppercase text-slate-500 flex items-center gap-1">
+                    <TicketPercent className="w-4.5 h-4.5 text-blue-400"  /> Descuento:
+                  </label>
+                  <input
+                    type="number"
+                    min="0" max="99"
+                    value={nuevoProducto.descuento || 0}
+                    onChange={(e) => setNuevoProducto({ ...nuevoProducto, descuento: e.target.value })}
+                    className="w-full p-2 border border-slate-300 rounded-lg text-xs font-semibold focus:ring-2 focus:ring-blue-500"
+                    placeholder="Ej: 15"
+                  />
+                  <p className="text-[9px] text-slate-400 font-medium leading-tight">El producto aparecerá rebajado en la tienda web.</p>
+                </div>
+
+                <div className="space-y-1 flex flex-col justify-center">
+                  <label className="text-[11px] font-bold uppercase text-slate-500 flex items-center gap-1">
+                    <Star className="w-4.5 h-4.5 text-blue-400"  /> Exhibición:
+                  </label>
+                  <label className="flex items-center gap-2 mt-2 cursor-pointer bg-slate-50 p-2 rounded-lg border border-slate-200 hover:bg-blue-50 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(nuevoProducto.destacado)}
+                      onChange={(e) => setNuevoProducto({ ...nuevoProducto, destacado: e.target.checked })}
+                      className="w-4 h-4 text-blue-600 rounded cursor-pointer accent-blue-600"
+                    />
+                    <span className="text-xs font-bold text-slate-700">Destacar en pantalla principal (Home)</span>
+                  </label>
+                </div>
+              </div>
           </div>
 
           {/* SECCIÓN INTERACTIVA: DESGLOSE PRECISO DE STOCK POR VARIANTES */}

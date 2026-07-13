@@ -512,9 +512,9 @@ app.post('/api/ventas/presencial', verificarToken, (req, res) => {
 // RUTA INVENTARIO: CREAR PRODUCTO (AHORA CON MULTER PARA IMÁGENES)
 // ===================================================================================
 app.post('/api/productos', verificarToken, upload.array('imagenes', 5), (req, res) => {
-  const { nombre, descripcion, precio, stock, id_categoria } = req.body;
+  // Agregamos descuento y destacado al destructuring
+  const { nombre, descripcion, precio, stock, id_categoria, descuento, destacado } = req.body;
   
-  // Como usamos FormData, los arrays llegan como Texto (String), hay que volverlos a convertir
   let variantes = [];
   if (req.body.variantes) {
     variantes = JSON.parse(req.body.variantes);
@@ -524,19 +524,22 @@ app.post('/api/productos', verificarToken, upload.array('imagenes', 5), (req, re
     return res.status(400).json({ error: 'El nombre y el precio del insumo son obligatorios.' });
   }
 
-  
   let imagenPath = '🚲';
   if (req.files && req.files.length > 0) {
     imagenPath = req.files.map(file => 'http://localhost:5000/uploads/' + file.filename).join('|');
   }
 
-  // 1. Inserta la información base
+  // Actualizamos el INSERT para que incluya las nuevas columnas
   const queryProducto = `
-    INSERT INTO productos (nombre, descripcion, precio, stock, imagen, id_categoria) 
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO productos (nombre, descripcion, precio, stock, imagen, id_categoria, descuento, destacado) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
-  db.query(queryProducto, [nombre, descripcion, precio, stock || 0, imagenPath, id_categoria || 1], (err, result) => {
+  // Parseamos a número y booleano por seguridad
+  const valDescuento = Number(descuento) || 0;
+  const valDestacado = destacado === 'true' || destacado === true ? 1 : 0;
+
+  db.query(queryProducto, [nombre, descripcion, precio, stock || 0, imagenPath, id_categoria || 1, valDescuento, valDestacado], (err, result) => {
     if (err) {
       console.error('Error insertando producto general:', err);
       return res.status(500).json({ error: 'Error del servidor al registrar el producto.' });
@@ -544,7 +547,6 @@ app.post('/api/productos', verificarToken, upload.array('imagenes', 5), (req, re
 
     const idProductoInsertado = result.insertId;
 
-    // 2. Desglose de variantes
     if (variantes && Array.isArray(variantes) && variantes.length > 0) {
       let variantesGuardadas = 0;
       let huboErrorVariante = false;
@@ -574,22 +576,26 @@ app.post('/api/productos', verificarToken, upload.array('imagenes', 5), (req, re
 // ==========================================================
 app.put('/api/productos/:id', verificarToken, upload.array('imagenes', 5), (req, res) => {
   const { id } = req.params;
-  const { nombre, descripcion, precio, stock, id_categoria, imagen_existente } = req.body;
+  // Agregamos descuento y destacado
+  const { nombre, descripcion, precio, stock, id_categoria, imagen_existente, descuento, destacado } = req.body;
   
   let variantes = [];
   if (req.body.variantes) {
     variantes = JSON.parse(req.body.variantes);
   }
 
-  // MAGIA MULTER: Si sube fotos nuevas, pisamos las viejas. Si no, mantenemos las existentes.
   let imagenPath = imagen_existente || '🚲';
   if (req.files && req.files.length > 0) {
     imagenPath = req.files.map(file => 'http://localhost:5000/uploads/' + file.filename).join('|');
   }
 
-  const queryUpdate = 'UPDATE productos SET nombre = ?, descripcion = ?, precio = ?, stock = ?, imagen = ?, id_categoria = ? WHERE id = ?';
+  const valDescuento = Number(descuento) || 0;
+  const valDestacado = destacado === 'true' || destacado === true ? 1 : 0;
+
+  // Actualizamos el UPDATE
+  const queryUpdate = 'UPDATE productos SET nombre = ?, descripcion = ?, precio = ?, stock = ?, imagen = ?, id_categoria = ?, descuento = ?, destacado = ? WHERE id = ?';
   
-  db.query(queryUpdate, [nombre, descripcion, precio, stock, imagenPath, id_categoria, id], (err, result) => {
+  db.query(queryUpdate, [nombre, descripcion, precio, stock, imagenPath, id_categoria, valDescuento, valDestacado, id], (err, result) => {
     if (err) return res.status(500).json({ error: 'Error al actualizar producto.' });
 
     db.query('DELETE FROM producto_variantes WHERE id_producto = ?', [id], (errDel) => {
@@ -865,6 +871,116 @@ app.put('/api/pedidos/:id/estado', verificarToken, (req, res) => {
       return res.status(500).json({ error: 'Error del servidor al actualizar el pedido.' });
     }
     res.json({ message: 'Estado del paquete actualizado con éxito.' });
+  });
+});
+// ==========================================================
+// MÓDULO ADMINISTRADOR: ANALÍTICA Y ESTADÍSTICAS (BI)
+// ==========================================================
+app.get('/api/admin/estadisticas', verificarToken, verificarAdmin, (req, res) => {
+  // 1. Ingresos Mensuales del año actual divididos por canal (Web vs Mostrador)
+  const queryMensual = `
+    SELECT 
+      DATE_FORMAT(fecha, '%M') AS mes_nombre,
+      MONTH(fecha) AS mes_num,
+      SUM(CASE WHEN tipo_venta LIKE '%Web%' THEN total ELSE 0 END) AS ingresos_web,
+      SUM(CASE WHEN tipo_venta LIKE '%Mostrador%' THEN total ELSE 0 END) AS ingresos_mostrador
+    FROM ventas
+    WHERE YEAR(fecha) = YEAR(NOW())
+    GROUP BY MONTH(fecha), DATE_FORMAT(fecha, '%M')
+    ORDER BY mes_num ASC
+  `;
+
+  // 2. Top 5 Productos más vendidos con su desglose de cantidades
+  const queryTopProductos = `
+    SELECT p.nombre, SUM(dv.cantidad) AS total_vendido
+    FROM detalle_venta dv
+    INNER JOIN productos p ON dv.id_producto = p.id
+    GROUP BY p.id
+    ORDER BY total_vendido DESC
+    LIMIT 5
+  `;
+
+  // 3. Distribución de Medios de Pago más utilizados
+  const queryMediosPago = `
+    SELECT 
+      CASE 
+        WHEN tipo_venta LIKE '%Efectivo%' THEN 'Efectivo'
+        WHEN tipo_venta LIKE '%Tarjeta%' THEN 'Tarjeta'
+        WHEN tipo_venta LIKE '%Transferencia%' THEN 'Transferencia / MP'
+        ELSE 'Otros'
+      END AS medio,
+      COUNT(*) AS cantidad_usos
+    FROM ventas
+    GROUP BY medio
+  `;
+
+  // Ejecutamos las consultas en cascada para devolver un solo objeto consolidado
+  db.query(queryMensual, (err, mensual) => {
+    if (err) return res.status(500).json({ error: 'Error en analítica mensual.' });
+
+    db.query(queryTopProductos, (errTop, productos) => {
+      if (errTop) return res.status(500).json({ error: 'Error en analítica de productos.' });
+
+      db.query(queryMediosPago, (errPago, pagos) => {
+        if (errPago) return res.status(500).json({ error: 'Error en analítica de pagos.' });
+
+        // Mapeamos los nombres de los meses al español para que el gráfico quede impecable
+        const mesesEsp = {
+          January: 'Ene', February: 'Feb', March: 'Mar', April: 'Abr', May: 'May', June: 'Jun',
+          July: 'Jul', August: 'Ago', September: 'Sep', October: 'Oct', November: 'Nov', December: 'Dic'
+        };
+
+        const datosMensualesFormateados = mensual.map(row => ({
+          mes: mesesEsp[row.mes_nombre] || row.mes_nombre,
+          Web: Number(row.ingresos_web),
+          Mostrador: Number(row.ingresos_mostrador),
+          Total: Number(row.ingresos_web) + Number(row.ingresos_mostrador)
+        }));
+
+        res.json({
+          ingresosMensuales: datosMensualesFormateados,
+          topProductos: productos.map(p => ({ name: p.nombre, cantidad: Number(p.total_vendido) })),
+          mediosPago: pagos.map(p => ({ name: p.medio, value: Number(p.cantidad_usos) }))
+        });
+      });
+    });
+  });
+});
+// ==========================================================
+// MÓDULO ADMINISTRADOR: GESTIÓN DE USUARIOS Y ROLES
+// ==========================================================
+// 1. Obtener la lista de todos los usuarios registrados
+app.get('/api/admin/usuarios', verificarToken, verificarAdmin, (req, res) => {
+  // Excluimos la contraseña por seguridad
+  const query = 'SELECT id, nombre, email, telefono, direccion, rol FROM usuarios ORDER BY id DESC';
+  
+  db.query(query, (err, results) => {
+    if (err) {
+      console.error('Error al obtener lista de usuarios:', err);
+      return res.status(500).json({ error: 'Error del servidor al cargar usuarios.' });
+    }
+    res.json(results);
+  });
+});
+
+// 2. Cambiar el rol de un usuario (Ascender/Descender)
+app.put('/api/admin/usuarios/:id/rol', verificarToken, verificarAdmin, (req, res) => {
+  const { id } = req.params;
+  const { rol } = req.body;
+
+  // Evitar que el admin se quite el rol a sí mismo por accidente
+  if (parseInt(id) === req.usuarioId && rol !== 'admin') {
+    return res.status(400).json({ error: 'No puedes quitarte el rol de Administrador a ti mismo.' });
+  }
+
+  const query = 'UPDATE usuarios SET rol = ? WHERE id = ?';
+
+  db.query(query, [rol, id], (err, result) => {
+    if (err) {
+      console.error('Error al cambiar rol de usuario:', err);
+      return res.status(500).json({ error: 'Error del servidor al actualizar el rol.' });
+    }
+    res.json({ message: `El usuario ha sido actualizado al rol de: ${rol.toUpperCase()}` });
   });
 });
 
