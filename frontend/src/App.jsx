@@ -23,6 +23,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import POSOrders from './pages/POSOrders';
 import AdminAnalytics from './pages/AdminAnalytics';
 import AdminUsers from './pages/AdminUsers';
+import AdminNotifications from './pages/AdminNotifications';
 
 function App() {
   const [autenticado, setAutenticado] = useState(!!localStorage.getItem('token'));
@@ -254,9 +255,23 @@ function App() {
             )
           } 
         />
+        {/* RUTA HISTORIAL DE NOTIFICACIONES */}
+        <Route 
+          path="/notifications" 
+          element={
+            autenticado ? (
+              <PageLayout isSidebarOpen={isSidebarOpen}>
+                {userRol === 'admin' ? <AdminNotifications /> : <Navigate to="/" />}
+              </PageLayout>
+            ) : (
+              <Navigate to="/login" />
+            )
+          } 
+        />
 
         {/* RUTA POR DEFECTO (404) */}
         <Route path="*" element={<Navigate to="/" />} />
+
       </Routes>
     </div>
   );

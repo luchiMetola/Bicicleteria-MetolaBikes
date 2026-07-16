@@ -5,6 +5,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');   
 const multer = require('multer'); 
 const path = require('path');
+const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 const app = express();
@@ -42,8 +43,9 @@ const db = mysql.createConnection({
     password: '',      
     database: 'bicicleteria_bd' 
 });
-
+// ==========================================================
 // Probar la conexión
+// ==========================================================
 db.connect((err) => {
     if (err) {
         console.error('Error conectando a la base de datos: ' + err.stack);
@@ -51,11 +53,44 @@ db.connect((err) => {
     }
     console.log('✅ Conectado a la base de datos de la Bicicletería Metola Bikes');
 });
+// ==========================================
+// CONFIGURACIÓN DE NODEMAILER (ENVÍO DE EMAILS)
+// ==========================================
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
 
-// Clave secreta para firmar los tokens (Guardala en el .env más adelante)
+// Probar conexión con Gmail al arrancar el servidor
+transporter.verify().then(() => {
+  console.log('📧 Cartero Nodemailer conectado y listo para enviar correos');
+}).catch(err => {
+  console.error('⚠️ Error al conectar Nodemailer con Gmail:', err);
+});
+
+// FUNCIÓN MAESTRA PARA ENVIAR CORREOS
+const enviarCorreo = async (destinatario, asunto, mensajeHtml) => {
+  try {
+    const info = await transporter.sendMail({
+      from: '"Metola Bikes Oficial" <' + process.env.EMAIL_USER + '>', // Remitente
+      to: destinatario, // Correo del cliente
+      subject: asunto, // Asunto del correo
+      html: mensajeHtml // Cuerpo del correo en formato HTML
+    });
+    console.log(`✉️ Correo enviado exitosamente a ${destinatario} (ID: ${info.messageId})`);
+  } catch (error) {
+    console.error('❌ Error al enviar el correo a', destinatario, error);
+  }
+};
+
+// Clave secreta para firmar los tokens 
 const JWT_SECRET = 'clave_secreta_para_desarrollo';
-
+// ==========================================================
 // --- RUTAS EXISTENTES ---
+// ==========================================================
 app.get('/', (req, res) => {
     res.send('El servidor de la Bicicletería está funcionando!');
 });
@@ -332,177 +367,161 @@ app.get('/api/historial', verificarToken, (req, res) => {
   });
 });
 // ==========================================
-// NUEVA RUTA: PROCESAR PAGO, DETALLE DE VENTA Y DESCUENTO DE STOCK VARIANTES AUTOMÁTICO
+// NUEVA RUTA: PROCESAR PAGO WEB (Y DESCUENTO DE STOCK)
 // ===================================================================================
 app.post('/api/ventas/pagar', verificarToken, (req, res) => {
-  // Ahora el frontend debe enviarnos también el array de productos ('productosComprados') del carrito
   const { total, tipo_venta, metodo_entrega, direccion_envio, medio_pago, productosComprados } = req.body;
 
-  if (!total || !tipo_venta || !productosComprados || !Array.isArray(productosComprados)) {
-    return res.status(400).json({ error: 'Faltan datos obligatorios o el carrito está vacío para procesar la venta.' });
+  if (!total || !productosComprados || !Array.isArray(productosComprados)) {
+    return res.status(400).json({ error: 'Faltan datos obligatorios o el carrito está vacío.' });
   }
 
-  // Definimos el estado inicial del envío según la opción elegida
   let estado_envio = 'Pendiente de pago';
-  if (medio_pago === 'Tarjeta') {
-    estado_envio = metodo_entrega === 'Retiro en sucursal' ? 'Listo para retirar' : 'Preparando envío';
-  } else if (medio_pago === 'Transferencia') {
-    estado_envio = 'Esperando comprobante';
-  } else {
-    estado_envio = 'A coordinar en sucursal';
-  }
+  if (medio_pago === 'Tarjeta') estado_envio = metodo_entrega === 'Retiro en sucursal' ? 'Listo para retirar' : 'Preparando envío';
+  else if (medio_pago === 'Transferencia') estado_envio = 'Esperando comprobante';
+  else estado_envio = 'A coordinar en sucursal';
 
   const resumenCortoVenta = `Web - ${medio_pago} - ${metodo_entrega}`;
-
-  // 1. Insertamos la Cabecera de la Venta
-  const queryVenta = `
-    INSERT INTO ventas (id_usuario, fecha, total, tipo_venta, estado_envio) 
-    VALUES (?, NOW(), ?, ?, ?)
-  `;
+  const queryVenta = `INSERT INTO ventas (id_usuario, fecha, total, tipo_venta, estado_envio) VALUES (?, NOW(), ?, ?, ?)`;
 
   db.query(queryVenta, [req.usuarioId, total, resumenCortoVenta, estado_envio], (err, result) => {
-    if (err) {
-      console.error('Error crítico al insertar la venta en MySQL:', err);
-      return res.status(500).json({ error: 'Error del servidor al procesar el pago.' });
-    }
+    if (err) return res.status(500).json({ error: 'Error del servidor al procesar el pago.' });
 
-    const idVentaGenerada = result.insertId; // Recuperamos el ID de la venta que se acaba de crear
-
-    // 2. Recorremos con un bucle cada producto del carrito para guardar su detalle y restar stock
+    const idVentaGenerada = result.insertId;
     let erroresOcurridos = false;
     let queriesCompletadas = 0;
-    const totalQueriesAEjecutar = productosComprados.length * 2; // 1 insert de detalle + 1 update de stock por cada item
+    const totalQueriesAEjecutar = productosComprados.length * 2; 
 
-    if (productosComprados.length === 0) {
-      return res.status(201).json({ message: '¡Pago procesado con éxito!', id_venta: idVentaGenerada });
-    }
+    if (productosComprados.length === 0) return res.status(201).json({ message: '¡Pago procesado!', id_venta: idVentaGenerada });
 
     productosComprados.forEach((item) => {
-      // Mandamos de forma segura valores por defecto por si el producto no tiene variante (ej: un accesorio sin talle)
+      // CORRECCIÓN CRÍTICA: Aseguramos capturar el ID correcto que manda React
+      const idProd = item.id || item.id_producto; 
+      const nombreProd = item.nombre || 'Artículo de Catálogo';
       const colorSeleccionado = item.color || 'Único';
       const rodadoTallaSeleccionado = item.rodado_talla || 'Único';
       const cantidadComprada = item.cantidad || 1;
       const precioUnitario = item.precio || 0;
 
-      // A) Insertar en la tabla intermedia 'detalle_venta' que creaste en phpMyAdmin
-      const queryDetalle = `
-        INSERT INTO detalle_venta (id_venta, id_producto, color, rodado_talla, cantidad, precio_unitario)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `;
-
-      db.query(queryDetalle, [idVentaGenerada, item.id_producto, colorSeleccionado, rodadoTallaSeleccionado, cantidadComprada, precioUnitario], (errDet) => {
-        if (errDet) {
-          console.error('Error al insertar en detalle_venta:', errDet);
-          erroresOcurridos = true;
-        }
+      // 1. Insertar detalle
+      const queryDetalle = `INSERT INTO detalle_venta (id_venta, id_producto, color, rodado_talla, cantidad, precio_unitario) VALUES (?, ?, ?, ?, ?, ?)`;
+      db.query(queryDetalle, [idVentaGenerada, idProd, colorSeleccionado, rodadoTallaSeleccionado, cantidadComprada, precioUnitario], (errDet) => {
+        if (errDet) erroresOcurridos = true;
         verificarFinalizacion();
       });
 
-      // B) Restar el stock automatizado específicamente de la variante color/rodado elegida
-      const queryStock = `
-        UPDATE producto_variantes 
-        SET stock = stock - ? 
-        WHERE id_producto = ? AND color = ? AND rodado_talla = ?
-      `;
-
-      db.query(queryStock, [cantidadComprada, item.id_producto, colorSeleccionado, rodadoTallaSeleccionado], (errStock) => {
+      // 2. Restar stock y verificar si quedó en CERO
+      const queryStock = `UPDATE producto_variantes SET stock = stock - ? WHERE id_producto = ? AND color = ? AND rodado_talla = ?`;
+      db.query(queryStock, [cantidadComprada, idProd, colorSeleccionado, rodadoTallaSeleccionado], (errStock) => {
         if (errStock) {
-          console.error('Error al actualizar el stock de la variante:', errStock);
           erroresOcurridos = true;
+          verificarFinalizacion();
+        } else {
+          db.query(`SELECT stock FROM producto_variantes WHERE id_producto = ? AND color = ? AND rodado_talla = ?`, 
+          [idProd, colorSeleccionado, rodadoTallaSeleccionado], (errSel, resSel) => {
+            // SI EL STOCK LLEGÓ A CERO, DISPARAMOS LA ALERTA
+            if (resSel && resSel.length > 0 && resSel[0].stock <= 0) {
+              const msgStock = `⚠️ ALERTA STOCK: "${nombreProd}" (${colorSeleccionado} / ${rodadoTallaSeleccionado}) se quedó sin inventario.`;
+              db.query('INSERT INTO notificaciones_admin (mensaje, tipo) VALUES (?, "alerta_stock")', [msgStock]);
+            }
+            verificarFinalizacion();
+          });
         }
-        verificarFinalizacion();
       });
     });
 
-    // Función auxiliar para responderle al cliente una vez que terminaron de correr todos los inserts y updates
     function verificarFinalizacion() {
       queriesCompletadas++;
       if (queriesCompletadas === totalQueriesAEjecutar) {
-        if (erroresOcurridos) {
-          return res.status(201).json({ 
-            message: '¡Pago registrado!, pero hubo un desajuste al procesar algunos artículos o su stock.', 
-            id_venta: idVentaGenerada 
-          });
-        }
-        return res.status(201).json({ 
-          message: '¡Pago procesado con éxito, venta registrada y stock de variantes actualizado!', 
-          id_venta: idVentaGenerada 
+        
+        // --- LÓGICA DE NOTIFICACIONES ---
+        const queryCliente = "SELECT email, nombre, telefono FROM usuarios WHERE id = ?";
+        db.query(queryCliente, [req.usuarioId], (err, rows) => {
+          if (!err && rows.length > 0) {
+            const { email, nombre, telefono } = rows[0];
+            
+            const asunto = '¡Gracias por tu compra en Metola Bikes!';
+            const cuerpo = `<h1>¡Hola ${nombre}!</h1><p>Tu compra #${idVentaGenerada} ha sido procesada.</p><p>Total: $${total}</p>`;
+            enviarCorreo(email, asunto, cuerpo);
+
+            const listadoProductos = productosComprados.map(p => `${p.nombre}`).join(', ');
+            const alertaMsg = `🛍️ Venta Web #${idVentaGenerada} | Cliente: ${nombre} | Tel: ${telefono || 'S/N'} | Pago: ${medio_pago} | Total: $${total} | Ítems: ${listadoProductos}`;
+            db.query('INSERT INTO notificaciones_admin (mensaje, tipo) VALUES (?, "venta_web")', [alertaMsg]);
+          }
         });
+
+        if (erroresOcurridos) return res.status(201).json({ message: 'Pago con desajustes.', id_venta: idVentaGenerada });
+        return res.status(201).json({ message: '¡Pago procesado con éxito!', id_venta: idVentaGenerada });
       }
     }
   });
 });
+
 // ==========================================
 // REGISTRAR LAS VENTAS PRESENCIAL (EMPLEADO - POS)
 // ==========================================
 app.post('/api/ventas/presencial', verificarToken, (req, res) => {
-  // Ahora recibimos el array exacto de productos y el medio de pago
   const { total, tipo_venta, medio_pago, productosComprados } = req.body;
 
   if (!total || !productosComprados || !Array.isArray(productosComprados)) {
     return res.status(400).json({ error: 'Faltan datos obligatorios para facturar.' });
   }
 
-  // Las ventas de mostrador se entregan en el acto
   const estado_envio = 'Entregado en salón';
   const resumenCortoVenta = `Mostrador - ${medio_pago || 'Efectivo'}`;
 
-  const queryVenta = `
-    INSERT INTO ventas (id_usuario, fecha, total, tipo_venta, estado_envio) 
-    VALUES (?, NOW(), ?, ?, ?)
-  `;
+  const queryVenta = `INSERT INTO ventas (id_usuario, fecha, total, tipo_venta, estado_envio) VALUES (?, NOW(), ?, ?, ?)`;
 
-  // req.usuarioId identifica al empleado que está facturando (para la auditoría del Admin)
   db.query(queryVenta, [req.usuarioId, total, resumenCortoVenta, estado_envio], (err, result) => {
-    if (err) {
-      console.error('Error al facturar en mostrador:', err);
-      return res.status(500).json({ error: 'Error del servidor al registrar la venta presencial.' });
-    }
+    if (err) return res.status(500).json({ error: 'Error al registrar la venta presencial.' });
 
     const idVentaGenerada = result.insertId;
     let erroresOcurridos = false;
     let queriesCompletadas = 0;
-    const totalQueriesAEjecutar = productosComprados.length * 2; // Insertar detalle + Restar stock
+    const totalQueriesAEjecutar = productosComprados.length * 2;
 
-    if (productosComprados.length === 0) {
-      return res.status(201).json({ message: 'Venta registrada vacía.', id_venta: idVentaGenerada });
-    }
+    if (productosComprados.length === 0) return res.status(201).json({ message: 'Venta registrada vacía.', id_venta: idVentaGenerada });
 
-    // Recorremos el carrito del Mostrador
     productosComprados.forEach((item) => {
+      // CORRECCIÓN CRÍTICA AQUÍ TAMBIÉN
+      const idProd = item.id || item.id_producto; 
+      const nombreProd = item.nombre || 'Artículo de Catálogo';
       const colorSeleccionado = item.color || 'Único';
       const rodadoTallaSeleccionado = item.rodado_talla || 'Único';
       const cantidadComprada = item.cantidad || 1;
       const precioUnitario = item.precio || 0;
 
       // 1. Insertamos en detalle_venta
-      const queryDetalle = `
-        INSERT INTO detalle_venta (id_venta, id_producto, color, rodado_talla, cantidad, precio_unitario)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `;
-      db.query(queryDetalle, [idVentaGenerada, item.id_producto, colorSeleccionado, rodadoTallaSeleccionado, cantidadComprada, precioUnitario], (errDet) => {
+      const queryDetalle = `INSERT INTO detalle_venta (id_venta, id_producto, color, rodado_talla, cantidad, precio_unitario) VALUES (?, ?, ?, ?, ?, ?)`;
+      db.query(queryDetalle, [idVentaGenerada, idProd, colorSeleccionado, rodadoTallaSeleccionado, cantidadComprada, precioUnitario], (errDet) => {
         if (errDet) erroresOcurridos = true;
         verificarFinalizacion();
       });
 
-      // 2. Descontamos el stock de la variante
-      const queryStock = `
-        UPDATE producto_variantes 
-        SET stock = stock - ? 
-        WHERE id_producto = ? AND color = ? AND rodado_talla = ?
-      `;
-      db.query(queryStock, [cantidadComprada, item.id_producto, colorSeleccionado, rodadoTallaSeleccionado], (errStock) => {
-        if (errStock) erroresOcurridos = true;
-        verificarFinalizacion();
+      // 2. Descontamos el stock de la variante y verificamos si quedó en CERO
+      const queryStock = `UPDATE producto_variantes SET stock = stock - ? WHERE id_producto = ? AND color = ? AND rodado_talla = ?`;
+      db.query(queryStock, [cantidadComprada, idProd, colorSeleccionado, rodadoTallaSeleccionado], (errStock) => {
+        if (errStock) {
+          erroresOcurridos = true;
+          verificarFinalizacion();
+        } else {
+          db.query(`SELECT stock FROM producto_variantes WHERE id_producto = ? AND color = ? AND rodado_talla = ?`, 
+          [idProd, colorSeleccionado, rodadoTallaSeleccionado], (errSel, resSel) => {
+            // ALERTA DE STOCK PARA MOSTRADOR
+            if (resSel && resSel.length > 0 && resSel[0].stock <= 0) {
+              const msgStock = `⚠️ ALERTA STOCK: "${nombreProd}" (${colorSeleccionado} / ${rodadoTallaSeleccionado}) se quedó sin inventario en el salón.`;
+              db.query('INSERT INTO notificaciones_admin (mensaje, tipo) VALUES (?, "alerta_stock")', [msgStock]);
+            }
+            verificarFinalizacion();
+          });
+        }
       });
     });
 
     function verificarFinalizacion() {
       queriesCompletadas++;
       if (queriesCompletadas === totalQueriesAEjecutar) {
-        if (erroresOcurridos) {
-          return res.status(201).json({ message: 'Venta registrada con desajustes de stock.', id_venta: idVentaGenerada });
-        }
+        if (erroresOcurridos) return res.status(201).json({ message: 'Venta registrada con desajustes de stock.', id_venta: idVentaGenerada });
         return res.status(201).json({ message: '¡Venta presencial facturada con éxito!', id_venta: idVentaGenerada });
       }
     }
@@ -658,30 +677,61 @@ app.get('/api/admin/productos', verificarToken, (req, res) => {
   });
 });
 // ==========================================================
-// TALLER: CREAR NUEVA SOLICITUD PROTEGIDA (CLIENTE) - CORREGIDO
+// TALLER: CONFIGURACIÓN GLOBAL DE DISPONIBILIDAD (NUEVO)
 // ==========================================================
-app.post('/api/equipo', verificarToken, (req, res) => { // <-- Se agregó el token aquí
+
+// 1. Obtener el estado actual del taller (Público)
+app.get('/api/equipo/config', (req, res) => {
+  db.query('SELECT * FROM taller_config WHERE id = 1', (err, result) => {
+    if (err) return res.status(500).json({ error: 'Error al consultar configuración del taller.' });
+    res.json(result[0] || { taller_habilitado: 1, mensaje_estado: '' });
+  });
+});
+
+// 2. Modificar el estado del taller (Exclusivo Admin/Empleado)
+app.put('/api/admin/equipo/config', verificarToken, (req, res) => {
+  const { taller_habilitado, mensaje_estado } = req.body;
+  const valHabilitado = taller_habilitado ? 1 : 0;
+
+  const query = 'UPDATE taller_config SET taller_habilitado = ?, mensaje_estado = ? WHERE id = 1';
+  db.query(query, [valHabilitado, mensaje_estado || ''], (err, result) => {
+    if (err) return res.status(500).json({ error: 'Error al actualizar configuración.' });
+    res.json({ message: 'La disponibilidad del taller ha sido actualizada con éxito.' });
+  });
+});
+
+// ==========================================================
+// TALLER: CREAR NUEVA SOLICITUD PROTEGIDA (CLIENTE) - CON FILTRO DE PAUSA
+// ==========================================================
+app.post('/api/equipo', verificarToken, (req, res) => {
   const { bici_modelo, equipo_dato, descripcion } = req.body;
 
   if (!bici_modelo || !equipo_dato || !descripcion) {
     return res.status(400).json({ error: 'Todos los campos son obligatorios.' });
   }
 
-  // Ahora sí se inyecta req.usuarioId de manera segura en la columna creacion
-  const query = `
-    INSERT INTO equipo (bici_modelo, equipo_dato, descripcion, estado, creacion) 
-    VALUES (?, ?, ?, 'Pendiente', ?)
-  `;
-
-  db.query(query, [bici_modelo, equipo_dato, descripcion, req.usuarioId], (err, result) => {
-    if (err) {
-      console.error('Error al insertar en la tabla equipo:', err);
-      return res.status(500).json({ error: 'Error del servidor al guardar el turno.' });
-    }
+  // VALIDACIÓN DE SEGURIDAD INTERNA: Verificamos si el taller acepta solicitudes web
+  db.query('SELECT taller_habilitado FROM taller_config WHERE id = 1', (errConfig, configRes) => {
+    if (errConfig) return res.status(500).json({ error: 'Error interno de validación.' });
     
-    res.status(201).json({ 
-      message: '¡Turno solicitado con éxito!', 
-      id: result.insertId 
+    if (configRes[0] && configRes[0].taller_habilitado === 0) {
+      return res.status(400).json({ error: 'La recepción de turnos web se encuentra suspendida temporalmente por alta demanda.' });
+    }
+
+    const query = `
+      INSERT INTO equipo (bici_modelo, equipo_dato, descripcion, estado, creacion) 
+      VALUES (?, ?, ?, 'Pendiente', ?)
+    `;
+
+    db.query(query, [bici_modelo, equipo_dato, descripcion, req.usuarioId], (err, result) => {
+      if (err) {
+        console.error('Error al insertar en la tabla equipo:', err);
+        return res.status(500).json({ error: 'Error del servidor al guardar el turno.' });
+      }
+      //Insertar alerta interna para el Mecánico
+    const alertaTallerMsg = `Nueva solicitud de turno web para el componente/bici: ${bici_modelo}.`;
+    db.query('INSERT INTO notificaciones_admin (mensaje, tipo) VALUES (?, "taller")', [alertaTallerMsg]);
+      res.status(201).json({ message: '¡Turno solicitado con éxito!', id: result.insertId });
     });
   });
 });
@@ -787,6 +837,31 @@ app.put('/api/admin/equipo/:id', verificarToken, (req, res) => {
       console.error('Error al actualizar estado del turno:', err);
       return res.status(500).json({ error: 'Error del servidor al modificar el estado.' });
     }
+
+    // --- LÓGICA DE NOTIFICACIÓN POR EMAIL ---
+    if (estado === 'Aceptado') {
+      // Primero buscamos el email del cliente asociado a este turno
+      const queryEmail = `
+        SELECT u.email, u.nombre, e.bici_modelo, e.equipo_dato 
+        FROM equipo e 
+        JOIN usuarios u ON e.creacion = u.id 
+        WHERE e.id = ?`;
+        
+      db.query(queryEmail, [id], (err, rows) => {
+        if (!err && rows.length > 0) {
+          const { email, nombre, bici_modelo, equipo_dato } = rows[0];
+          const asunto = '¡Tu turno en Metola Bikes ha sido confirmado!';
+          const cuerpo = `
+            <h1>¡Hola ${nombre}!</h1>
+            <p>Te traemos buenas noticias: tu solicitud de turno para <b>${bici_modelo}</b> ha sido aceptada.</p>
+            <p>Te esperamos el día: <b>${equipo_dato}</b> en nuestro taller.</p>
+            <p>Gracias por confiar en Metola Bikes.</p>
+          `;
+          enviarCorreo(email, asunto, cuerpo);
+        }
+      });
+    }
+
     res.json({ message: estado === 'Rechazado' ? 'Turno rechazado con motivo registrado.' : `Turno actualizado a: ${estado}` });
   });
 });
@@ -981,6 +1056,37 @@ app.put('/api/admin/usuarios/:id/rol', verificarToken, verificarAdmin, (req, res
       return res.status(500).json({ error: 'Error del servidor al actualizar el rol.' });
     }
     res.json({ message: `El usuario ha sido actualizado al rol de: ${rol.toUpperCase()}` });
+  });
+});
+// ==========================================================
+// MÓDULO ADMINISTRADOR/EMPLEADO: ENDPOINTS DE ALERTAS UNIFICADAS
+// ==========================================================
+
+// 1. Campanita (Sólo no leídas)
+app.get('/api/admin/notificaciones', verificarToken, (req, res) => {
+  // Ahora TODOS los empleados y admins ven las ventas y la falta de stock
+  const query = 'SELECT * FROM notificaciones_admin WHERE leido = FALSE ORDER BY id DESC';
+  db.query(query, (err, results) => {
+    if (err) return res.status(500).json({ error: 'Error al obtener alertas.' });
+    res.json(results);
+  });
+});
+
+// 2. Historial Completo (Pantalla Dedicada)
+app.get('/api/admin/notificaciones/todas', verificarToken, (req, res) => {
+  const query = 'SELECT *, DATE_FORMAT(fecha, "%d/%m/%Y %H:%i") AS fecha_formateada FROM notificaciones_admin ORDER BY id DESC LIMIT 100';
+  db.query(query, (err, results) => {
+    if (err) return res.status(500).json({ error: 'Error al obtener historial.' });
+    res.json(results);
+  });
+});
+
+// 3. Marcar todo como Leído
+app.put('/api/admin/notificaciones/leer', verificarToken, (req, res) => {
+  const query = 'UPDATE notificaciones_admin SET leido = TRUE WHERE leido = FALSE';
+  db.query(query, (err) => {
+    if (err) return res.status(500).json({ error: 'Error al limpiar alertas.' });
+    res.json({ message: 'Campanita actualizada.' });
   });
 });
 
