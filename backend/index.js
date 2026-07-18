@@ -444,8 +444,9 @@ app.post('/api/ventas/pagar', verificarToken, (req, res) => {
             const cuerpo = `<h1>¡Hola ${nombre}!</h1><p>Tu compra #${idVentaGenerada} ha sido procesada.</p><p>Total: $${total}</p>`;
             enviarCorreo(email, asunto, cuerpo);
 
-            const listadoProductos = productosComprados.map(p => `${p.nombre}`).join(', ');
-            const alertaMsg = `🛍️ Venta Web #${idVentaGenerada} | Cliente: ${nombre} | Tel: ${telefono || 'S/N'} | Pago: ${medio_pago} | Total: $${total} | Ítems: ${listadoProductos}`;
+            
+            const listadoProductos = productosComprados.map(p => `${p.cantidad || 1}x ${p.nombre || 'Artículo de Catálogo'}`).join(', ');
+            const alertaMsg = `Venta Web #${idVentaGenerada} | Cliente: ${nombre} | Tel: ${telefono || 'S/N'} | Compró: ${listadoProductos} | Total: $${total}`;
             db.query('INSERT INTO notificaciones_admin (mensaje, tipo) VALUES (?, "venta_web")', [alertaMsg]);
           }
         });
@@ -838,26 +839,55 @@ app.put('/api/admin/equipo/:id', verificarToken, (req, res) => {
       return res.status(500).json({ error: 'Error del servidor al modificar el estado.' });
     }
 
-    // --- LÓGICA DE NOTIFICACIÓN POR EMAIL ---
-    if (estado === 'Aceptado') {
-      // Primero buscamos el email del cliente asociado a este turno
+    // --- LÓGICA DE NOTIFICACIÓN POR EMAIL (AMPLIADA) ---
+    // Ahora escucha tanto cuando se acepta el turno, como cuando se termina el trabajo
+    if (estado === 'Aceptado' || estado === 'Listo para retirar' || estado === 'Completado') {
+      
       const queryEmail = `
-        SELECT u.email, u.nombre, e.bici_modelo, e.equipo_dato 
+        SELECT u.id AS id_cliente, u.email, u.nombre, e.bici_modelo, DATE_FORMAT(e.equipo_dato, '%d/%m/%Y %H:%i') AS equipo_dato 
         FROM equipo e 
         JOIN usuarios u ON e.creacion = u.id 
         WHERE e.id = ?`;
         
       db.query(queryEmail, [id], (err, rows) => {
         if (!err && rows.length > 0) {
-          const { email, nombre, bici_modelo, equipo_dato } = rows[0];
-          const asunto = '¡Tu turno en Metola Bikes ha sido confirmado!';
-          const cuerpo = `
-            <h1>¡Hola ${nombre}!</h1>
-            <p>Te traemos buenas noticias: tu solicitud de turno para <b>${bici_modelo}</b> ha sido aceptada.</p>
-            <p>Te esperamos el día: <b>${equipo_dato}</b> en nuestro taller.</p>
-            <p>Gracias por confiar en Metola Bikes.</p>
-          `;
+          const { id_cliente, email, nombre, bici_modelo, equipo_dato } = rows[0];
+          
+          let asunto = '';
+          let cuerpo = '';
+          let msjNotificacionWeb = ''; // <--- Nueva variable para la campanita
+
+          // Mensaje si el turno es ACEPTADO
+          if (estado === 'Aceptado') {
+            asunto = '¡Tu turno en Metola Bikes ha sido confirmado!';
+            msjNotificacionWeb = `🗓️ Tu turno para ${bici_modelo} fue confirmado para el día ${equipo_dato}.`;
+            cuerpo = `
+              <h1>¡Hola ${nombre}!</h1>
+              <p>Te traemos buenas noticias: tu solicitud de turno para <b>${bici_modelo}</b> ha sido aceptada.</p>
+              <p>Te esperamos el día: <b>${equipo_dato}</b> en nuestro taller.</p>
+              <p>Gracias por confiar en Metola Bikes.</p>
+            `;
+          } 
+          // Mensaje si el trabajo está LISTO PARA RETIRAR
+          else {
+            asunto = '🚲 ¡Tu bicicleta ya está lista!';
+            msjNotificacionWeb = `✅ El servicio para tu ${bici_modelo} finalizó. ¡Ya podés pasar a retirarla!`;
+            cuerpo = `
+              <h1>¡Hola ${nombre}!</h1>
+              <p>Te avisamos que el servicio técnico para tu <b>${bici_modelo}</b> ha finalizado con éxito.</p>
+              <p>Ya podés pasar por nuestra sucursal a retirarla cuando gustes.</p>
+              <p>¡Gracias por elegir a Metola Bikes!</p>
+            `;
+          }
+
+          // 1. Enviar el correo
           enviarCorreo(email, asunto, cuerpo);
+
+          // 2. Insertar notificación web para el cliente
+          db.query(
+            'INSERT INTO notificaciones_cliente (id_usuario, mensaje, tipo) VALUES (?, ?, "taller")',
+            [id_cliente, msjNotificacionWeb]
+          );
         }
       });
     }
@@ -1087,6 +1117,47 @@ app.put('/api/admin/notificaciones/leer', verificarToken, (req, res) => {
   db.query(query, (err) => {
     if (err) return res.status(500).json({ error: 'Error al limpiar alertas.' });
     res.json({ message: 'Campanita actualizada.' });
+  });
+});
+// ==========================================================
+// MÓDULO CLIENTE: NOTIFICACIONES WEB PERSONALES
+// ==========================================================
+
+// 1. Traer solo las notificaciones del cliente que está logueado
+app.get('/api/notificaciones/mis-avisos', verificarToken, (req, res) => {
+  const query = `
+    SELECT *, DATE_FORMAT(fecha, '%d/%m/%Y %H:%i') AS fecha_formateada 
+    FROM notificaciones_cliente 
+    WHERE id_usuario = ? AND leido = FALSE 
+    ORDER BY id DESC
+  `;
+  
+  db.query(query, [req.usuarioId], (err, results) => {
+    if (err) return res.status(500).json({ error: 'Error al obtener tus avisos.' });
+    res.json(results);
+  });
+});
+
+// 2. Marcar las notificaciones del cliente como leídas
+app.put('/api/notificaciones/marcar-leidas', verificarToken, (req, res) => {
+  const query = 'UPDATE notificaciones_cliente SET leido = TRUE WHERE id_usuario = ? AND leido = FALSE';
+  db.query(query, [req.usuarioId], (err) => {
+    if (err) return res.status(500).json({ error: 'Error al limpiar tus avisos.' });
+    res.json({ message: 'Avisos marcados como leídos.' });
+  });
+});
+// 3. Traer TODAS las notificaciones del cliente (Historial completo)
+app.get('/api/notificaciones/historial-cliente', verificarToken, (req, res) => {
+  const query = `
+    SELECT *, DATE_FORMAT(fecha, '%d/%m/%Y %H:%i') AS fecha_formateada 
+    FROM notificaciones_cliente 
+    WHERE id_usuario = ? 
+    ORDER BY id DESC
+  `;
+  
+  db.query(query, [req.usuarioId], (err, results) => {
+    if (err) return res.status(500).json({ error: 'Error al obtener tu historial de avisos.' });
+    res.json(results);
   });
 });
 

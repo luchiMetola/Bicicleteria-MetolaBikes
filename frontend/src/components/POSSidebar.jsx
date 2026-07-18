@@ -86,14 +86,14 @@ function POSSidebar({isSidebarOpen, setIsSidebarOpen}) {
             className="flex items-center justify-center lg:justify-start gap-3 w-full p-2.5 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800 transition-colors relative cursor-pointer"
           >
             <div className="relative">
-              <Bell className={`w-5 h-5 ${alertas.length > 0 ? 'text-amber-400 animate-bounce' : 'text-slate-400'}`} />
+              <Bell className={`w-5 h-5 ${alertas.length > 0 ? 'text-red-600 animate-bounce' : 'text-slate-400'}`} />
               {alertas.length > 0 && (
                 <span className="absolute -top-1.5 -right-1.5 bg-rose-600 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center border border-slate-900 shadow-sm animate-pulse">
                   {alertas.length}
                 </span>
               )}
             </div>
-            {isSidebarOpen && <span className="text-sm font-semibold text-slate-200">Alertas Operativas</span>}
+            {isSidebarOpen && <span className="text-sm font-semibold text-slate-200">Alertas</span>}
           </button>
 
           {/* MENÚ FLOTANTE DE NOTIFICACIONES */}

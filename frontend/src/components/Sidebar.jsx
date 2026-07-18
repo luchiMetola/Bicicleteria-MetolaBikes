@@ -1,6 +1,5 @@
-
 import { Link, useLocation } from 'react-router-dom';
-import { Home, Package, User, ShoppingCart, Wrench, LogOut, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Home, Package, User, ShoppingCart, Wrench, LogOut, ChevronLeft, ChevronRight, BellRing } from 'lucide-react';
 
 function Sidebar({isSidebarOpen, setIsSidebarOpen}) {
   const location = useLocation();
@@ -25,11 +24,11 @@ function Sidebar({isSidebarOpen, setIsSidebarOpen}) {
         <div className="flex items-center justify-between border-b border-slate-800 pb-4 mt-2">
           {isSidebarOpen && <h2 className="text-lg font-black tracking-tight text-[#3A53A4] pl-2">Metola Bikes</h2>}
           <button 
-    onClick={() => setIsSidebarOpen(!isSidebarOpen)} // <--- ESTO ES LO QUE FALTA
-    className="p-1.5 hover:bg-slate-800 rounded-lg cursor-pointer text-slate-400 hover:text-white mx-auto"
-  >
-    {isSidebarOpen ? <ChevronLeft className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-  </button>
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)} 
+            className="p-1.5 hover:bg-slate-800 rounded-lg cursor-pointer text-slate-400 hover:text-white mx-auto"
+          >
+            {isSidebarOpen ? <ChevronLeft className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+          </button>
         </div>
         
         <nav className="flex flex-col space-y-2">
@@ -49,10 +48,16 @@ function Sidebar({isSidebarOpen, setIsSidebarOpen}) {
             <Wrench className="w-5 h-5 shrink-0" />
             {isSidebarOpen && <span>Taller</span>}
           </Link>
+          <Link to="/notifications" className={linkClase('/notifications')}>
+            <BellRing className="w-5 h-5 shrink-0" />
+            {isSidebarOpen && <span>Notificaciones</span>}
+          </Link>
           <Link to="/profile" className={linkClase('/profile')}>
             <User className="w-5 h-5 shrink-0" />
             {isSidebarOpen && <span>Perfil</span>}
           </Link>
+          
+
         </nav>
       </div>
 

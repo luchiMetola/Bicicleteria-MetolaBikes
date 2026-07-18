@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
-import { TrendingUp, Package, Wrench, Users, User, LogOut, ChevronLeft, ChevronRight, Truck, PieChart, Bell, BellOff, X } from 'lucide-react';
+import { TrendingUp, Package, Wrench, Users, User, LogOut, ChevronLeft, ChevronRight, Truck, PieChart,  BellOff, X, BellRing } from 'lucide-react';
 
 function AdminSidebar({isSidebarOpen, setIsSidebarOpen}) {
   const location = useLocation();
@@ -75,7 +75,7 @@ function AdminSidebar({isSidebarOpen, setIsSidebarOpen}) {
             className="flex items-center justify-center lg:justify-start gap-3 w-full p-2.5 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 transition-colors relative cursor-pointer"
           >
             <div className="relative">
-              <Bell className={`w-5 h-5 ${alertas.length > 0 ? 'text-amber-400 animate-bounce' : 'text-slate-400'}`} />
+              <BellRing className={`w-5 h-5 ${alertas.length > 0 ? 'text-red-600 animate-bounce' : 'text-slate-400'}`} />
               {alertas.length > 0 && (
                 <span className="absolute -top-1.5 -right-1.5 bg-rose-600 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center border border-slate-900 shadow-sm animate-pulse">
                   {alertas.length}
@@ -134,12 +134,12 @@ function AdminSidebar({isSidebarOpen, setIsSidebarOpen}) {
             {isSidebarOpen && <span>Gestión de Envíos</span>}
           </Link>
           <Link to="/notifications" className={linkClase('/notifications')}>
-            <Bell className="w-5 h-5 shrink-0" />
+            <BellRing className="w-5 h-5 shrink-0" />
             {isSidebarOpen && <span>Notificaciones</span>}
           </Link>
           <Link to="/analytics" className={linkClase('/analytics')}>
             <PieChart className="w-5 h-5 shrink-0" />
-            {isSidebarOpen && <span>Estadísticas BI</span>}
+            {isSidebarOpen && <span>Estadísticas</span>}
           </Link>
 
           <Link to="/workshop" className={linkClase('/workshop')}>

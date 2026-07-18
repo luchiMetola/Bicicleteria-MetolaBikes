@@ -45,7 +45,7 @@ function AdminAnalytics() {
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans p-4 md:p-8 w-full transition-all">
       <header className="border-b border-slate-200 pb-4 mb-6">
         <h1 className="text-2xl font-black tracking-tight flex items-center gap-2">
-          <PieIcon className="w-6 h-6 text-emerald-600" /> Inteligencia de Negocio (BI)
+          <PieIcon className="w-6 h-6 text-emerald-600" /> Inteligencia de Negocio
         </h1>
         <p className="text-slate-500 text-xs mt-0.5">Análisis estadístico, flujo de caja y comportamiento de clientes.</p>
       </header>

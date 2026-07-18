@@ -24,6 +24,7 @@ import POSOrders from './pages/POSOrders';
 import AdminAnalytics from './pages/AdminAnalytics';
 import AdminUsers from './pages/AdminUsers';
 import AdminNotifications from './pages/AdminNotifications';
+import ClientNotifications from './pages/ClientNotifications';
 
 function App() {
   const [autenticado, setAutenticado] = useState(!!localStorage.getItem('token'));
@@ -255,13 +256,16 @@ function App() {
             )
           } 
         />
-        {/* RUTA HISTORIAL DE NOTIFICACIONES */}
+        {/* RUTA HISTORIAL DE NOTIFICACIONES (INTELIGENTE) */}
         <Route 
           path="/notifications" 
           element={
             autenticado ? (
               <PageLayout isSidebarOpen={isSidebarOpen}>
-                {userRol === 'admin' ? <AdminNotifications /> : <Navigate to="/" />}
+                {(userRol === 'admin' || userRol === 'empleado') 
+                  ? <AdminNotifications /> 
+                  : <ClientNotifications />
+                }
               </PageLayout>
             ) : (
               <Navigate to="/login" />
