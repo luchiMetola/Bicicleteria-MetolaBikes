@@ -80,9 +80,9 @@ const enviarCorreo = async (destinatario, asunto, mensajeHtml) => {
       subject: asunto, // Asunto del correo
       html: mensajeHtml // Cuerpo del correo en formato HTML
     });
-    console.log(`✉️ Correo enviado exitosamente a ${destinatario} (ID: ${info.messageId})`);
+    console.log(`✔ Correo enviado exitosamente a ${destinatario} (ID: ${info.messageId})`);
   } catch (error) {
-    console.error('❌ Error al enviar el correo a', destinatario, error);
+    console.error('✖ Error al enviar el correo a', destinatario, error);
   }
 };
 
@@ -448,6 +448,9 @@ app.post('/api/ventas/pagar', verificarToken, (req, res) => {
             const listadoProductos = productosComprados.map(p => `${p.cantidad || 1}x ${p.nombre || 'Artículo de Catálogo'}`).join(', ');
             const alertaMsg = `Venta Web #${idVentaGenerada} | Cliente: ${nombre} | Tel: ${telefono || 'S/N'} | Compró: ${listadoProductos} | Total: $${total}`;
             db.query('INSERT INTO notificaciones_admin (mensaje, tipo) VALUES (?, "venta_web")', [alertaMsg]);
+            // NOTIFICACIÓN IN-APP PARA EL CLIENTE: COMPRA REALIZADA
+            const msjClienteCompra = `✔ Tu compra fue procesada con éxito. Estamos preparando tu pedido.`;
+            db.query('INSERT INTO notificaciones_cliente (id_usuario, mensaje, tipo) VALUES (?, ?, "venta_web")', [req.usuarioId, msjClienteCompra]);
           }
         });
 
@@ -860,7 +863,7 @@ app.put('/api/admin/equipo/:id', verificarToken, (req, res) => {
           // Mensaje si el turno es ACEPTADO
           if (estado === 'Aceptado') {
             asunto = '¡Tu turno en Metola Bikes ha sido confirmado!';
-            msjNotificacionWeb = `🗓️ Tu turno para ${bici_modelo} fue confirmado para el día ${equipo_dato}.`;
+            msjNotificacionWeb = `✔ Tu turno para ${bici_modelo} fue confirmado para el día ${equipo_dato}.`;
             cuerpo = `
               <h1>¡Hola ${nombre}!</h1>
               <p>Te traemos buenas noticias: tu solicitud de turno para <b>${bici_modelo}</b> ha sido aceptada.</p>
@@ -871,7 +874,7 @@ app.put('/api/admin/equipo/:id', verificarToken, (req, res) => {
           // Mensaje si el trabajo está LISTO PARA RETIRAR
           else {
             asunto = '🚲 ¡Tu bicicleta ya está lista!';
-            msjNotificacionWeb = `✅ El servicio para tu ${bici_modelo} finalizó. ¡Ya podés pasar a retirarla!`;
+            msjNotificacionWeb = `✔ El servicio para tu ${bici_modelo} finalizó. ¡Ya podés pasar a retirarla!`;
             cuerpo = `
               <h1>¡Hola ${nombre}!</h1>
               <p>Te avisamos que el servicio técnico para tu <b>${bici_modelo}</b> ha finalizado con éxito.</p>
@@ -963,7 +966,7 @@ app.get('/api/pedidos', verificarToken, (req, res) => {
   });
 });
 
-// 2. Actualizar el estado logístico de un pedido
+// 2. Actualizar el estado logístico de un pedido y notificar al cliente
 app.put('/api/pedidos/:id/estado', verificarToken, (req, res) => {
   const { id } = req.params;
   const { estado_envio } = req.body;
@@ -975,6 +978,28 @@ app.put('/api/pedidos/:id/estado', verificarToken, (req, res) => {
       console.error('Error al actualizar estado del pedido:', err);
       return res.status(500).json({ error: 'Error del servidor al actualizar el pedido.' });
     }
+
+    //LÓGICA DE NOTIFICACIONES DE LOGÍSTICA PARA EL CLIENTE
+    // Buscamos a qué cliente le pertenece esta venta
+    db.query('SELECT id_usuario FROM ventas WHERE id = ?', [id], (errUsuario, rows) => {
+      if (!errUsuario && rows.length > 0) {
+        const id_cliente = rows[0].id_usuario;
+        let msjLogistica = '';
+
+        // Definimos el mensaje según el estado que eligió el empleado
+        if (estado_envio === 'Despachado') {
+          msjLogistica = `¡Buenas noticias!  ✔ Tu pedido ya fue despachado y está en camino.`;
+        } else if (estado_envio === 'Listo para retirar') {
+          msjLogistica = ` ✔ Tu pedido ya está empaquetado y listo. ¡Te esperamos en la sucursal!`;
+        }
+
+        // Si hay un mensaje para ese estado, guardamos la notificación
+        if (msjLogistica !== '') {
+          db.query('INSERT INTO notificaciones_cliente (id_usuario, mensaje, tipo) VALUES (?, ?, "venta_web")', [id_cliente, msjLogistica]);
+        }
+      }
+    });
+
     res.json({ message: 'Estado del paquete actualizado con éxito.' });
   });
 });
