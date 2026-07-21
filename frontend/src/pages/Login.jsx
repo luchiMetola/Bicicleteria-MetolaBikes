@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { GoogleLogin } from '@react-oauth/google';
 import { Mail, Lock, Eye, EyeOff, LogIn } from 'lucide-react';
 
 function Login({ setAutenticado }) {
@@ -10,6 +11,36 @@ function Login({ setAutenticado }) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // === FUNCIÓN PARA MANEJAR EL LOGIN CON GOOGLE ===
+  const respuestaGoogleExitosa = async (credencialResponse) => {
+    try {
+      const res = await fetch('http://localhost:5000/api/auth/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tokenGoogle: credencialResponse.credential })
+      });
+      
+      const data = await res.json();
+
+      if (res.ok) {
+        if (data.usuarioNuevo) {
+          // Si es nuevo, NO lo dejamos loguearse desde acá. Lo mandamos a que se registre.
+          setError('No tenés cuenta en Metola Bikes. Por favor, registrate primero o intentá con otro email.');
+        } else {
+          // Si ya existe, lo logueamos
+          localStorage.setItem('token', data.token);
+          setAutenticado(true);
+          navigate('/');
+        }
+      } else {
+        setError(data.error || "Error al iniciar sesión con Google");
+      }
+    } catch (err) {
+      console.error("Error en Google Login:", err);
+      setError("No se pudo conectar con el servidor.");
+    }
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -102,6 +133,22 @@ function Login({ setAutenticado }) {
             {loading ? 'Iniciando sesión...' : 'Iniciar sesión'}
           </button>
         </form>
+
+        {/* === SEPARADOR Y BOTÓN DE GOOGLE === */}
+        <div className="flex items-center my-5">
+          <div className="flex-1 border-t border-slate-300"></div>
+          <span className="px-3 text-slate-400 text-xs font-semibold uppercase tracking-wider">O ingresá con</span>
+          <div className="flex-1 border-t border-slate-300"></div>
+        </div>
+
+        <div className="flex justify-center w-full">
+          <GoogleLogin
+            onSuccess={respuestaGoogleExitosa}
+            onError={() => setError('El usuario canceló el inicio con Google')}
+            useOneTap
+            width="320"
+          />
+        </div>
 
         <p className="mt-6 text-center text-sm text-slate-500">
           ¿No tienes cuenta?

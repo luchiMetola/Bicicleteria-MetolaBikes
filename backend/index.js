@@ -6,6 +6,9 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer'); 
 const path = require('path');
 const nodemailer = require('nodemailer');
+const { OAuth2Client } = require('google-auth-library');
+const GOOGLE_CLIENT_ID = '484477705574-o568rp2oru74m9bslul7oi88s92j6scp.apps.googleusercontent.com'; 
+const client = new OAuth2Client(GOOGLE_CLIENT_ID);
 require('dotenv').config();
 
 const app = express();
@@ -225,6 +228,63 @@ app.post('/api/auth/login', (req, res) => {
             });
         });
     });
+});
+// ==========================================
+// RUTA: LOGIN Y REGISTRO CON GOOGLE 
+// ==========================================
+app.post('/api/auth/google', async (req, res) => {
+    const { tokenGoogle } = req.body;
+
+    if (!tokenGoogle) {
+        return res.status(400).json({ error: 'No se proporcionó el token de Google.' });
+    }
+
+    try {
+        // 1. Verificar que el token de Google sea real
+        const ticket = await client.verifyIdToken({
+            idToken: tokenGoogle,
+            audience: GOOGLE_CLIENT_ID,
+        });
+        
+        const payload = ticket.getPayload();
+        const email = payload.email;
+        const nombre = payload.name;
+
+        console.log(`📧 Intentando autenticar con Google a: ${email}`);
+
+        // 2. Buscar si este email ya existe en la base de datos
+        db.query('SELECT * FROM usuarios WHERE email = ?', [email], (err, results) => {
+            if (err) {
+                console.error('❌ Error en la query de MySQL al buscar usuario de Google:', err);
+                return res.status(500).json({ error: 'Error en la base de datos al buscar el usuario.' });
+            }
+
+            if (results && results.length > 0) {
+                // EL USUARIO YA EXISTE -> Login directo
+                const usuario = results[0];
+                const tokenJWT = jwt.sign({ id: usuario.id, rol: usuario.rol }, JWT_SECRET, { expiresIn: '24h' });
+                
+                console.log(`✅ Usuario existente logueado con Google: ${email}`);
+                return res.status(200).json({
+                    mensaje: 'Login con Google exitoso',
+                    token: tokenJWT,
+                    usuarioNuevo: false
+                });
+            } else {
+                // EL USUARIO ES NUEVO -> Avisamos al Frontend
+                console.log(`🙋‍♂️ Usuario nuevo detectado desde Google: ${email}`);
+                return res.status(200).json({
+                    mensaje: 'Se requieren datos adicionales',
+                    usuarioNuevo: true,
+                    datosGoogle: { nombre, email }
+                });
+            }
+        });
+
+    } catch (error) {
+        console.error("❌ Error crítico validando el token de Google en el Backend:", error);
+        return res.status(401).json({ error: 'El token de Google es inválido, expiró o el ID de cliente no coincide.' });
+    }
 });
 
 // ==========================================
